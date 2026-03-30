@@ -13,38 +13,37 @@ interface TopbarProps {
 
 export default function Topbar({ userName }: TopbarProps) {
   const [scrolled, setScrolled] = useState(false);
-  const headerRef = useRef<HTMLElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Find the nearest scrollable ancestor (SidebarInset uses overflow-auto)
-    const scrollContainer =
-      headerRef.current?.parentElement ?? window as unknown as HTMLElement;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
 
-    function onScroll() {
-      const top =
-        scrollContainer instanceof Window
-          ? scrollContainer.scrollY
-          : (scrollContainer as HTMLElement).scrollTop;
-      setScrolled(top > 4);
-    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setScrolled(!entry.isIntersecting),
+      { threshold: 0 }
+    );
 
-    scrollContainer.addEventListener("scroll", onScroll, { passive: true });
-    return () => scrollContainer.removeEventListener("scroll", onScroll);
+    observer.observe(sentinel);
+    return () => observer.disconnect();
   }, []);
 
   return (
-    <header
-      ref={headerRef}
-      className={`sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 px-4 transition-all duration-200 ${
-        scrolled ? "bg-background border-b" : "bg-transparent"
-      }`}
-    >
-      <SidebarTrigger className="-ml-1" />
-      <Separator orientation="vertical" className="mr-2 h-4" />
-      <Link href="/resume" className="shrink-0">
-        <Image src="/logo.svg" alt="reHEARsal" width={28} height={28} />
-      </Link>
-      <AppBreadcrumb userName={userName} />
-    </header>
+    <>
+      {/* Sentinel: when this leaves the viewport, topbar is "scrolled" */}
+      <div ref={sentinelRef} className="h-px w-full" aria-hidden />
+      <header
+        className={`sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 px-4 transition-all duration-200 ${
+          scrolled ? "bg-background border-b" : "bg-transparent"
+        }`}
+      >
+        <SidebarTrigger className="-ml-1" />
+        <Separator orientation="vertical" className="mr-2 h-4" />
+        <Link href="/resume" className="shrink-0">
+          <Image src="/logo.svg" alt="reHEARsal" width={28} height={28} />
+        </Link>
+        <AppBreadcrumb userName={userName} />
+      </header>
+    </>
   );
 }
