@@ -25,10 +25,8 @@ export default async function MainLayout({
       <AppSidebar user={userInfo} />
       <SidebarInset>
         <Topbar userName={userInfo.name} />
-        <div className="flex-1 overflow-y-auto">
-          <div className="flex flex-col gap-4 p-4 pt-0">
-            {children}
-          </div>
+        <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+          {children}
         </div>
       </SidebarInset>
     </SidebarProvider>
