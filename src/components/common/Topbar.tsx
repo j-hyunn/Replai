@@ -36,7 +36,7 @@ export default function Topbar({ userName }: TopbarProps) {
     <header
       ref={headerRef}
       className={`sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 px-4 transition-all duration-200 ${
-        scrolled ? "bg-background/95 backdrop-blur-sm border-b" : "bg-transparent"
+        scrolled ? "bg-background border-b" : "bg-background"
       }`}
     >
       <SidebarTrigger className="-ml-1" />
