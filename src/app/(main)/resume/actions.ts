@@ -13,7 +13,11 @@ const ALLOWED_MIME_TYPES = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
-const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const MAX_SIZE_BYTES: Record<DocumentType, number> = {
+  resume: 10 * 1024 * 1024,    // 10MB
+  portfolio: 20 * 1024 * 1024, // 20MB
+  git: 0,
+};
 
 export interface ActionResult {
   error?: string;
@@ -36,8 +40,10 @@ export async function uploadDocumentAction(
     return { error: "PDF 또는 DOCX 파일만 업로드할 수 있습니다." };
   }
 
-  if (file.size > MAX_SIZE_BYTES) {
-    return { error: "파일 크기는 10MB 이하여야 합니다." };
+  const maxBytes = MAX_SIZE_BYTES[type] ?? 10 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    const maxMb = maxBytes / (1024 * 1024);
+    return { error: `파일 크기는 ${maxMb}MB 이하여야 합니다.` };
   }
 
   const supabase = await createClient();
