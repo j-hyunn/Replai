@@ -436,6 +436,7 @@ export async function POST(req: Request) {
     const prompt = buildEvaluationPrompt({
       qaGroups,
       analysisJson: safeAnalysis,
+      resumeTexts,
     });
 
     const raw = await runOneShot(prompt, "평가를 시작하세요.", user.id);

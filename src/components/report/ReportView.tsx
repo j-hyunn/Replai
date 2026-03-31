@@ -166,19 +166,6 @@ function SummaryPanel({ data }: { data: ReportJson }) {
       </div>
       <p className="text-sm leading-relaxed text-muted-foreground">{data.improvements}</p>
 
-      {data.retry_questions.length > 0 && (
-        <div className="rounded-lg border bg-muted/40 px-4 py-3 space-y-2">
-          <p className="text-xs font-semibold text-muted-foreground">다시 도전해볼 질문</p>
-          <ul className="space-y-1.5">
-            {data.retry_questions.map((q) => (
-              <li key={q.question_id} className="flex items-start gap-2 text-sm">
-                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
-                <span>{q.question}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </>
   );
 }
@@ -211,16 +198,7 @@ function AnswerPanel({ answer, index }: AnswerPanelProps) {
       ? groupTurnsIntoExchanges(answer.turns)
       : null;
 
-  // Resolve per-question model answers (new format) or fall back to legacy single model_answer
-  const modelAnswers: (ModelAnswerEntry | null)[] = (() => {
-    if (answer.model_answers && answer.model_answers.length > 0) {
-      return answer.model_answers;
-    }
-    if (answer.model_answer) {
-      return [{ question: answer.question, model_answer: answer.model_answer }];
-    }
-    return [];
-  })();
+  const modelAnswers: (ModelAnswerEntry | null)[] = answer.model_answers ?? [];
 
   return (
     <>
@@ -229,14 +207,6 @@ function AnswerPanel({ answer, index }: AnswerPanelProps) {
         <p className="text-xs text-muted-foreground">Q{index + 1}</p>
         <h2 className="text-base font-semibold leading-relaxed">{answer.question}</h2>
       </div>
-
-      {/* Question intent */}
-      {answer.intent && (
-        <div className="rounded-lg border-l-2 border-primary/40 bg-muted/30 px-3 py-2 space-y-0.5">
-          <p className="text-[11px] font-semibold text-primary/70 uppercase tracking-wide">질문 의도</p>
-          <p className="text-sm text-muted-foreground leading-relaxed">{answer.intent}</p>
-        </div>
-      )}
 
       {/* Scores + Feedback */}
       <Card>
@@ -279,6 +249,22 @@ function AnswerPanel({ answer, index }: AnswerPanelProps) {
                         </div>
                       </AccordionTrigger>
                       <AccordionContent className="px-4 pb-4 space-y-3">
+                        {(() => {
+                          const rawIntent = modelEntry?.intent ?? (i === 0 ? answer.intent : undefined);
+                          if (!rawIntent) return null;
+                          const chips = Array.isArray(rawIntent)
+                            ? rawIntent
+                            : rawIntent.split(/[,·•\n]+/).map((s: string) => s.trim()).filter(Boolean);
+                          return chips.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {chips.map((chip: string, ci: number) => (
+                                <span key={ci} className="inline-block rounded-full bg-primary/8 border border-primary/20 px-2.5 py-0.5 text-[11px] text-primary/80">
+                                  {chip}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null;
+                        })()}
                         {ex.answer ? (
                           <div className="rounded-lg bg-primary/5 px-3 py-2 text-sm text-muted-foreground leading-relaxed">
                             {ex.answer}

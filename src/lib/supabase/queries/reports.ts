@@ -14,6 +14,7 @@ export interface QaTurn {
 
 export interface ModelAnswerEntry {
   question: string
+  intent?: string[]
   model_answer: string
 }
 
@@ -23,19 +24,12 @@ export interface AnswerReport {
   answer: string
   scores: AnswerScore
   average: number
-  intent?: string
+  intent?: string | string[]
   feedback: string
-  /** @deprecated use model_answers instead */
-  model_answer?: string
   model_answers?: ModelAnswerEntry[]
   turns?: QaTurn[]
 }
 
-
-export interface RetryQuestion {
-  question_id: string
-  question: string
-}
 
 export interface ReportJson {
   total_score: number
@@ -43,7 +37,6 @@ export interface ReportJson {
   strengths: string
   improvements: string
   answers: AnswerReport[]
-  retry_questions: RetryQuestion[]
 }
 
 export interface InterviewReport {
