@@ -6,6 +6,7 @@ export type Persona = 'explorer' | 'pressure'
 export interface InterviewSession {
   id: string
   user_id: string
+  title: string | null
   jd_text: string | null
   persona: Persona | null
   duration_minutes: number | null
@@ -21,6 +22,7 @@ export interface InterviewSession {
 
 export interface CreateSessionInput {
   user_id: string
+  title?: string
   jd_text: string
   persona: Persona
   duration_minutes: number

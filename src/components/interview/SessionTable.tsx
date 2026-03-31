@@ -104,7 +104,7 @@ export default function SessionTable({ sessions }: SessionTableProps) {
                   aria-label="전체 선택"
                 />
               </TableHead>
-              <TableHead>페르소나</TableHead>
+              <TableHead>면접 이름</TableHead>
               <TableHead>시간</TableHead>
               <TableHead>상태</TableHead>
               <TableHead>일시</TableHead>
@@ -130,7 +130,7 @@ export default function SessionTable({ sessions }: SessionTableProps) {
                     />
                   </TableCell>
                   <TableCell className="font-medium">
-                    {session.persona ? PERSONA_LABELS[session.persona] : "-"}
+                    {session.title ?? "-"}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {session.duration_minutes ? `${session.duration_minutes}분` : "-"}
