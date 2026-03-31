@@ -22,5 +22,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/login?error=true`);
   }
 
+  const isPopup = searchParams.get("popup") === "true";
+  if (isPopup) {
+    return NextResponse.redirect(`${origin}/auth/popup-success`);
+  }
+
   return NextResponse.redirect(`${origin}/interview`);
 }

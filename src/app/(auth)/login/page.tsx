@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -13,9 +13,10 @@ import {
   CardHeader,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { signInWithGoogle } from "@/lib/supabase/auth.client";
+import { signInWithGooglePopup } from "@/lib/supabase/auth.client";
 
 export default function LoginPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, setIsPending] = useState(false);
 
@@ -28,9 +29,11 @@ export default function LoginPage() {
   async function handleGoogleLogin() {
     setIsPending(true);
     try {
-      await signInWithGoogle();
-    } catch {
-      toast.error("로그인에 실패했습니다. 다시 시도해주세요.");
+      await signInWithGooglePopup();
+      router.push("/interview");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "로그인에 실패했습니다. 다시 시도해주세요.";
+      toast.error(message);
       setIsPending(false);
     }
   }

@@ -9,7 +9,7 @@ export default async function AuthLayout({
   // Redirect already-authenticated users away from auth pages
   const user = await getUser();
   if (user) {
-    redirect("/upload");
+    redirect("/interview");
   }
 
   return <>{children}</>;
