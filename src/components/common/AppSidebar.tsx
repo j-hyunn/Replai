@@ -3,10 +3,11 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FileTextIcon, MessageSquareIcon, UserIcon } from "lucide-react";
+import { FileTextIcon, MessageSquareIcon, SettingsIcon, UserIcon } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -88,6 +89,23 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
           </SidebarGroup>
         ))}
       </SidebarContent>
+
+      <SidebarFooter className="p-2">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              isActive={pathname === "/preferences"}
+              tooltip="환경설정"
+              asChild
+            >
+              <Link href="/preferences">
+                <SettingsIcon />
+                <span>환경설정</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
 
       <SidebarRail />
     </Sidebar>

@@ -17,14 +17,14 @@ export default async function ResumePage() {
       <div>
         <h1 className="text-xl font-semibold">문서 관리</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          업로드된 문서는 모의 인터뷰에 자동으로 사용됩니다. 이력서는 필수입니다.
+          업로드된 문서는 모의 인터뷰에서 활용할 수 있습니다.
         </p>
       </div>
 
       <DocumentSection
         type="resume"
         title="이력서 / 경력기술서"
-        description="PDF 또는 DOCX · 최대 10MB · 필수"
+        description="PDF · 최대 10MB"
         required
         documents={resumes}
       />
@@ -32,7 +32,7 @@ export default async function ResumePage() {
       <DocumentSection
         type="portfolio"
         title="포트폴리오"
-        description="PDF 또는 DOCX · 최대 10MB · 선택사항"
+        description="PDF · 최대 20MB"
         documents={portfolios}
       />
 

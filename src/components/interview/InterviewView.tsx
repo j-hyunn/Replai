@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Pause, Play, SendHorizontal, Hourglass, ClipboardList, RotateCcw, Loader2, Lightbulb, SkipForward } from "lucide-react";
+import { toast } from "sonner";
+import { Pause, Play, SendHorizontal, Hourglass, ClipboardList, RotateCcw, Loader2, Lightbulb, SkipForward, Mic } from "lucide-react";
 import Image from "next/image";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -48,11 +49,16 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
   const [isSending, setIsSending] = useState(false);
   const [isHinting, setIsHinting] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const analysisRanRef = useRef(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const sendOnStopRef = useRef(false);
 
   // Keep ref in sync
   useEffect(() => {
@@ -144,6 +150,7 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
 
   function formatTime(s: number) {
     const m = Math.floor(s / 60);
@@ -260,6 +267,100 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
     }
   }
 
+  function playBeep() {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.15);
+    } catch { /* AudioContext not available */ }
+  }
+
+  async function handleMicStart() {
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      toast.error("마이크 권한이 필요해요. 브라우저 설정에서 허용해주세요.");
+      return;
+    }
+
+    audioChunksRef.current = [];
+    sendOnStopRef.current = false;
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : "audio/webm";
+    const recorder = new MediaRecorder(stream, { mimeType });
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksRef.current.push(e.data);
+    };
+
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+
+      if (!sendOnStopRef.current) {
+        audioChunksRef.current = [];
+        return;
+      }
+      sendOnStopRef.current = false;
+
+      const blob = new Blob(audioChunksRef.current, { type: mimeType });
+      audioChunksRef.current = [];
+
+      if (blob.size < 1000) {
+        toast.error("녹음된 음성이 너무 짧아요. 다시 시도해주세요.");
+        return;
+      }
+
+      setIsTranscribing(true);
+      try {
+        const formData = new FormData();
+        formData.append("audio", blob, "recording.webm");
+        const res = await fetch("/api/transcribe", { method: "POST", body: formData });
+        if (!res.ok) {
+          const body = await res.text();
+          console.error("[transcribe] HTTP", res.status, body);
+          throw new Error(`HTTP ${res.status}: ${body}`);
+        }
+        const { transcript } = await res.json() as { transcript: string };
+        if (transcript) {
+          sendMessage(transcript);
+        } else {
+          toast.error("음성이 인식되지 않았어요. 다시 말씀해보거나 직접 입력을 사용해주세요.");
+        }
+      } catch (e) {
+        console.error("[transcribe] error:", e);
+        toast.error("음성 변환 중 오류가 발생했어요. 다시 시도해주세요.");
+      } finally {
+        setIsTranscribing(false);
+      }
+    };
+
+    mediaRecorderRef.current = recorder;
+    recorder.start();
+    setIsListening(true);
+    playBeep();
+  }
+
+  function handleMicCancel() {
+    sendOnStopRef.current = false;
+    mediaRecorderRef.current?.stop();
+    setIsListening(false);
+  }
+
+  function handleVoiceSend() {
+    sendOnStopRef.current = true;
+    mediaRecorderRef.current?.stop();
+    setIsListening(false);
+  }
+
   function handleRestart() {
     if (intervalRef.current) clearInterval(intervalRef.current);
     saveRemainingSecondsAction(session.id, null);
@@ -363,6 +464,10 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
             @keyframes blob-glow {
               0%, 100% { opacity: 0.75; }
               50% { opacity: 1; }
+            }
+            @keyframes mic-bar {
+              from { height: 3px; }
+              to { height: 100%; }
             }
             .blob-outer { animation: blob-float 4.5s ease-in-out infinite; }
             .blob-glow { animation: blob-glow 2.5s ease-in-out infinite; }
@@ -491,28 +596,30 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Direct input */}
-        {directInput && (
-          <div className="border-t p-3 shrink-0 space-y-2">
-            {/* Chip buttons */}
-            <div className="flex gap-2">
-              <button
-                onClick={handleHint}
-                disabled={isSending || isHinting || isAnalyzing}
-                className="flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-400 dark:hover:bg-amber-900/40"
-              >
-                {isHinting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Lightbulb className="h-3 w-3" />}
-                모범 답안 제시
-              </button>
-              <button
-                onClick={handleSkip}
-                disabled={isSending || isHinting || isAnalyzing}
-                className="flex items-center gap-1 rounded-full border border-border bg-muted/50 px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <SkipForward className="h-3 w-3" />
-                질문 건너뛰기
-              </button>
-            </div>
+        {/* Input area — always rendered */}
+        <div className="border-t p-3 shrink-0 space-y-2">
+          {/* Chip buttons — both modes */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleHint}
+              disabled={isSending || isHinting || isAnalyzing}
+              className="flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-400 dark:hover:bg-amber-900/40"
+            >
+              {isHinting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Lightbulb className="h-3 w-3" />}
+              모범 답안 제시
+            </button>
+            <button
+              onClick={handleSkip}
+              disabled={isSending || isHinting || isAnalyzing}
+              className="flex items-center gap-1 rounded-full border border-border bg-muted/50 px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <SkipForward className="h-3 w-3" />
+              질문 건너뛰기
+            </button>
+          </div>
+
+          {/* Text input (직접입력 ON) */}
+          {directInput ? (
             <div className="flex items-end gap-2">
               <Textarea
                 ref={textareaRef}
@@ -539,15 +646,52 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
                 disabled={!inputText.trim() || isSending || isAnalyzing}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-40 transition-opacity"
               >
-                {isSending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <SendHorizontal className="h-4 w-4" />
-                )}
+                {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
               </button>
             </div>
-          </div>
-        )}
+          ) : (
+            /* Voice input (직접입력 OFF) */
+            <div className="space-y-2">
+              {isListening && (
+                <>
+                  <div className="flex items-center gap-[2px] h-4">
+                    {Array.from({ length: 24 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="flex-1 rounded-[1px] bg-primary"
+                        style={{ animation: `mic-bar 0.7s ease-in-out ${(i % 6) * 0.12}s infinite alternate` }}
+                      />
+                    ))}
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm min-h-9">
+                    <span className="text-muted-foreground">말하고 있어요...</span>
+                  </div>
+                </>
+              )}
+              <div className="flex items-end gap-2">
+                <button
+                  onClick={isListening ? handleMicCancel : handleMicStart}
+                  disabled={isSending || isAnalyzing || !isPlaying}
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                    isListening
+                      ? "border border-red-300 bg-red-50 text-red-500 hover:bg-red-100 dark:border-red-700 dark:bg-red-950/30 dark:text-red-400"
+                      : "border border-border bg-muted/50 text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  <Mic className="h-4 w-4" />
+                  {isListening ? "취소" : "말하기"}
+                </button>
+                <button
+                  onClick={handleVoiceSend}
+                  disabled={!isListening || isSending || isAnalyzing || isTranscribing}
+                  className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-40 transition-opacity"
+                >
+                  {isTranscribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
     </>

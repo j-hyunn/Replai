@@ -131,7 +131,7 @@ export default function GitLinkSection({ documents }: GitLinkSectionProps) {
         <div>
           <h2 className="text-sm font-semibold">GitHub</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            GitHub 프로필 또는 레포지토리 링크 · 선택사항
+            GitHub 레포지토리 링크
           </p>
         </div>
         {!isAdding && (
