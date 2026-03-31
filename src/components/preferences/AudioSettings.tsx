@@ -122,7 +122,7 @@ export default function AudioSettings() {
       }
       tick();
     } catch {
-      setPermissionDenied(true);
+      setPermissionState("denied");
     }
   }
 
