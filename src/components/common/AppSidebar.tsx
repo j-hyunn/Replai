@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BotIcon, FileTextIcon, MessageSquareIcon, SettingsIcon, UserIcon } from "lucide-react";
+import { BotIcon, FileTextIcon, MessageSquareIcon, MessageSquarePlusIcon, SettingsIcon, UserIcon } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -97,6 +97,17 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
 
       <SidebarFooter className="p-2">
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              tooltip="피드백"
+              asChild
+            >
+              <a href="https://walla.my/a/rhsfeedback" target="_blank" rel="noopener noreferrer">
+                <MessageSquarePlusIcon />
+                <span>피드백</span>
+              </a>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               isActive={pathname === "/preferences"}
