@@ -68,6 +68,7 @@ export function buildInterviewSystemPrompt(params: {
 
   const profileSection = userProfile
     ? `### 지원자 프로필
+- 이름: ${userProfile.name ?? "미입력"} (면접 중 지원자를 부를 때 이 이름을 자연스럽게 사용하세요. 이름이 미입력인 경우 "지원자님"으로 호칭하세요.)
 - 직군: ${userProfile.jobCategory ?? "미입력"}
 - 경력: ${userProfile.yearsOfExperience != null ? `${userProfile.yearsOfExperience}년` : "미입력"}
 - 기술 스택: ${userProfile.techStack.length > 0 ? userProfile.techStack.join(", ") : "미입력"}

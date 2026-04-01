@@ -16,6 +16,7 @@ export interface AnalysisOutput {
 }
 
 export interface UserProfileContext {
+  name?: string | null;
   jobCategory: string | null;
   yearsOfExperience: number | null;
   techStack: string[];
@@ -60,8 +61,8 @@ export function buildAnalysisPrompt(params: {
 ${profileSection ? `\n${profileSection}` : ""}
 ## JD 제공 여부
 ${jdText
-      ? "✅ JD가 제공되었습니다. common 질문의 첫 번째는 자기소개, 두 번째는 지원동기를 반드시 포함하세요."
-      : "❌ JD가 제공되지 않았습니다. 지원동기 질문은 절대 포함하지 마세요. 자기소개는 첫 번째로 포함하세요."}
+      ? "✅ JD가 제공되었습니다. common 질문의 첫 번째는 자기소개, 두 번째는 지원동기, 세 번째는 이직 사유를 반드시 포함하세요."
+      : "❌ JD가 제공되지 않았습니다. 지원동기 질문은 절대 포함하지 마세요. 첫 번째는 자기소개, 두 번째는 이직 사유를 반드시 포함하세요."}
 
 ## JD (채용공고)
 ${jdText || (userProfile?.jobCategory ? `없음 — 지원자 직군(${userProfile.jobCategory}) 기반 일반 면접 질문을 생성하세요.` : "없음 — 일반적인 IT 직무 면접 질문을 생성하세요.")}
@@ -77,8 +78,8 @@ ${resumeSection}
    - project: 이력서의 실제 프로젝트/경험 기반 질문
    - preferred_gap: JD 요구사항 대비 부족한 부분 검증 질문
 4. **common 질문 필수 규칙**:
-   - JD가 제공된 경우: 질문 목록의 첫 번째는 반드시 자기소개(id: "q1"), 두 번째는 반드시 지원동기(id: "q2")여야 합니다.
-   - JD가 제공되지 않은 경우: 자기소개(id: "q1")는 반드시 포함하되, 지원동기는 절대 포함하지 마세요.
+   - JD가 제공된 경우: 질문 목록의 첫 번째는 반드시 자기소개(id: "q1"), 두 번째는 반드시 지원동기(id: "q2"), 세 번째는 반드시 이직 사유(id: "q3")여야 합니다.
+   - JD가 제공되지 않은 경우: 첫 번째는 반드시 자기소개(id: "q1"), 두 번째는 반드시 이직 사유(id: "q2")여야 합니다. 지원동기는 절대 포함하지 마세요.
    - 이후 강약점 등 추가 common 질문을 구성하세요.
 5. 각 질문의 intent(의도)와 good_answer_tips(좋은 답변 팁)를 작성하세요.
 6. depth는 0으로 설정하세요 (면접 중 추가 질문 시 증가).

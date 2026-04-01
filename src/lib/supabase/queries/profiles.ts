@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 export interface UserProfile {
   id: string
   user_id: string
+  email: string | null
+  name: string | null
   job_category: string | null
   years_of_experience: number | null
   tech_stack: string[]
@@ -13,6 +15,8 @@ export interface UserProfile {
 
 export interface UpsertProfileInput {
   user_id: string
+  email?: string | null
+  name?: string | null
   job_category: string | null
   years_of_experience: number | null
   tech_stack: string[]

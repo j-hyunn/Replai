@@ -153,6 +153,7 @@ export async function POST(req: Request) {
   const resumeTexts = documentSections;
   const userProfile: UserProfileContext | undefined = profileData
     ? {
+        name: profileData.name,
         jobCategory: profileData.job_category,
         yearsOfExperience: profileData.years_of_experience,
         techStack: profileData.tech_stack,

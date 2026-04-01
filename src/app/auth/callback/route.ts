@@ -16,10 +16,23 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  const { data: sessionData, error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
     return NextResponse.redirect(`${origin}/login?error=true`);
+  }
+
+  const user = sessionData.user;
+  if (user) {
+    await supabase.from('user_profiles').upsert(
+      {
+        user_id: user.id,
+        email: user.email ?? null,
+        name: (user.user_metadata?.full_name as string) ?? null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    );
   }
 
   const isPopup = searchParams.get("popup") === "true";
