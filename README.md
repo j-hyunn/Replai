@@ -5,7 +5,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-App_Router-black?logo=nextdotjs)](https://nextjs.org)
 [![Supabase](https://img.shields.io/badge/Supabase-Database_+_Auth-3FCF8E?logo=supabase)](https://supabase.com)
 [![Vercel](https://img.shields.io/badge/Vercel-Deployed-black?logo=vercel)](https://vercel.com)
-[![Gemini](https://img.shields.io/badge/Gemini_3_Pro-Multi--Agent-4285F4?logo=google)](https://deepmind.google/technologies/gemini)
+[![Gemini](https://img.shields.io/badge/Gemini_2.5_flash-Multi--Agent-4285F4?logo=google)](https://deepmind.google/technologies/gemini)
 
 ---
 
@@ -52,7 +52,7 @@
 | IDE | Google Antigravity |
 | Framework | Next.js (App Router) |
 | UI | shadcn/ui |
-| AI 모델 | Gemini 3 Pro |
+| AI 모델 | Gemini 2.5 flash |
 | 에이전트 프레임워크 | Google ADK (TypeScript) |
 | Database / Auth / Storage | Supabase |
 | 배포 | Vercel |
