@@ -81,6 +81,34 @@ export function isInAppBrowser(): boolean {
 }
 
 /**
+ * Attempts to open the current page in an external browser.
+ * Android: redirects to Chrome via intent:// scheme.
+ * iOS: tries Chrome via googlechrome:// scheme, then copies URL to clipboard as fallback.
+ * Returns true if a redirect was attempted, false if fell back to clipboard copy.
+ */
+export async function openInExternalBrowser(): Promise<boolean> {
+  const url = window.location.href
+
+  if (/Android/i.test(navigator.userAgent)) {
+    window.location.href = `intent://${url.replace(/^https?:\/\//, '')}#Intent;scheme=https;package=com.android.chrome;end`
+    return true
+  }
+
+  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+    window.location.href = url.replace(/^https?:\/\//, 'googlechrome://')
+    // If Chrome is not installed the redirect silently fails — fall back to clipboard
+    await new Promise(resolve => setTimeout(resolve, 1500))
+  }
+
+  try {
+    await navigator.clipboard.writeText(url)
+  } catch {
+    // Clipboard API unavailable — user will need to copy manually
+  }
+  return false
+}
+
+/**
  * Signs the current user out and clears the session.
  */
 export async function signOut(): Promise<void> {

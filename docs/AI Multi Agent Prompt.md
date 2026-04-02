@@ -209,6 +209,8 @@ Runner (interviewRunner)
 ④ 면접 진행 규칙 (질문 순서, depth, 남은 시간, 출력 형식)
 ```
 
+> **주의:** ③의 분석 결과(`analysisJson`) 직렬화 시 각 질문의 `good_answer_tips` 필드는 제외된다. `good_answer_tips`는 힌트 에이전트 전용 데이터로, 면접관이 사전에 참조하면 꼬리질문·판단이 편향될 수 있기 때문이다. (`buildHintPrompt()`에는 별도 파라미터로 전달됨)
+
 ### 2-2. 페르소나 시스템 프롬프트 — `PERSONA_INSTRUCTIONS`
 
 #### explorer — 경험 탐색형
