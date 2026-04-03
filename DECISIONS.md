@@ -20,6 +20,8 @@
 14. [API 키 유효성 검사: 저장 전 실행](#14-api-키-유효성-검사-저장-전-실행)
 15. [모범 답안: 지원자 제출 문서 기반 생성](#15-모범-답안-지원자-제출-문서-기반-생성)
 16. [good_answer_tips: 힌트 에이전트 전용으로 분리](#16-good_answer_tips-힌트-에이전트-전용으로-분리)
+17. [신규 사용자 온보딩 플로우](#17-신규-사용자-온보딩-플로우)
+18. [파일 업로드 크기 제한: 3단계 설정](#18-파일-업로드-크기-제한-3단계-설정)
 
 ---
 
@@ -32,12 +34,12 @@
 **변경 이유**
 
 - 실제 구현에서 `pdf-parse`와 `mammoth`가 서버 의존성으로 포함되어 Server Actions에서 처리하는 것이 자연스러운 구조였음
-- Next.js `serverActions.bodySizeLimit: "10mb"` 설정으로 대용량 파일도 커버
+- Next.js `serverActions.bodySizeLimit: "21mb"` 설정으로 대용량 파일도 커버
 - 클라이언트 파싱 대비 일관된 파싱 품질 확보 가능
 
 **트레이드오프**
 
-- Vercel 함수 실행 시간 소비 증가 → `serverActions.bodySizeLimit` 설정으로 대응
+- Vercel 함수 실행 시간 소비 증가 → `serverActions.bodySizeLimit: "21mb"` 설정으로 대응 (이후 3단계 크기 제한 문제 발견 — #18 참조)
 - 스캔본 PDF, 이미지 기반 문서는 여전히 파싱 불가 → 텍스트 직접 붙여넣기 옵션 병행 제공
 
 ---
@@ -320,6 +322,14 @@
 
 면접 중 힌트(`buildHintPrompt`)도 동일한 원칙으로 문서 기반 모범 답안을 생성한다. 평가 시 모범 답안도 동일한 품질 기준을 적용한다.
 
+**업데이트 (2026-04-03)**
+
+두 가지 문제가 추가 발견되어 프롬프트 강화:
+
+1. **힌트 모범 답안이 일반적 내용으로 생성되는 문제**: `buildHintPrompt`에 문서 스캔 선행 단계(`[필수] 문서 기반 답변 작성`) 명시 추가. 추상적·일반적 답변 금지 명시. "이미 언급한 프로젝트 제외" 규칙이 너무 강해 관련 경험이 하나밖에 없을 때도 회피하는 문제 → "가능한 경우 다른 경험 우선, 없으면 동일 사용" 방식으로 완화.
+
+2. **리포트에서 hint 사용 질문의 model_answers가 빈 배열로 생성되는 문제**: AI가 `[모범 답안]` 마커와 "모범 답안 참조: 예" 레이블을 보고 "이미 제공됨"으로 해석해 생성 스킵. `buildEvaluationPrompt`에 "used_hint 여부와 무관하게 모든 질문에 model_answers 반드시 생성" 명시로 해결.
+
 **주의사항**
 
 - git 문서는 `parsed_text: ''`로 저장되므로 필터링됨 — 문서 텍스트로는 활용 불가, URL은 면접관 에이전트 컨텍스트로만 활용
@@ -382,6 +392,37 @@ Google login → auth callback
 - `src/lib/supabase/auth.client.ts`
 - `src/app/(onboarding)/`
 - `src/components/onboarding/`
+
+---
+
+## 18. 파일 업로드 크기 제한: 3단계 설정
+
+**결정** (2026-04-03): 파일 업로드 최대 크기는 Next.js, Turbopack, Supabase Storage 세 곳 모두에서 일치시켜야 한다.
+
+**배경**
+
+포트폴리오 파일 업로드 시 "Unexpected end of form" 에러 발생. 초기에 `serverActions.bodySizeLimit`만 조정했으나 에러 지속.
+
+**3단계 크기 제한 구조**
+
+```
+[1] next.config.ts — serverActions.bodySizeLimit: "21mb"
+    → Server Action으로 전달되는 FormData 크기 제한
+
+[2] next.config.ts — proxyClientMaxBodySize: "21mb"  (Turbopack 전용)
+    → Turbopack dev 서버의 프록시 레이어 자체 버퍼 제한 (기본값 10MB)
+    → 이 설정이 없으면 Turbopack이 요청을 중간에 잘라버려 "Unexpected end of form" 발생
+    → experimental 하위에 위치 (Next.js 16.2+ 필수)
+
+[3] Supabase Storage bucket file_size_limit: 20971520 (20MB)
+    → Storage에 실제 파일이 저장될 때의 용량 제한
+    → SQL: UPDATE storage.buckets SET file_size_limit = 20971520 WHERE id = 'documents';
+```
+
+**주의사항**
+
+- Turbopack 프록시 제한(`proxyClientMaxBodySize`)은 프로덕션에서는 적용되지 않음 — Vercel 배포 시에는 [1]과 [3]만 영향
+- 세 값이 맞지 않으면 가장 작은 값에서 먼저 차단됨 → 항상 동일하게 맞출 것
 
 ---
 

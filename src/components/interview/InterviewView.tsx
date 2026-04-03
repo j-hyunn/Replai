@@ -57,6 +57,7 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [loadingMsgIndex, setLoadingMsgIndex] = useState(0);
   const [thinkingMsgIndex, setThinkingMsgIndex] = useState(0);
+  const [evalElapsed, setEvalElapsed] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -164,6 +165,13 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
     }, 2500);
     return () => clearInterval(id);
   }, [isAnalyzing]);
+
+  useEffect(() => {
+    if (!isEvaluating) return;
+    setEvalElapsed(0);
+    const id = setInterval(() => setEvalElapsed((prev) => prev + 1), 1000);
+    return () => clearInterval(id);
+  }, [isEvaluating]);
 
   useEffect(() => {
     if (!isSending) return;
@@ -474,25 +482,77 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
   const title = session.persona ? `${PERSONA_LABELS[session.persona]} 모의면접` : "모의면접";
 
   if (isEvaluating) {
+    const EVAL_STEPS = ["답변 정리", "기업/직무 특화", "전문가 평가", "리포트 생성"] as const;
+    const evalStepIndex = evalElapsed < 10 ? 0 : evalElapsed < 30 ? 1 : evalElapsed < 60 ? 2 : 3;
+    const mm = String(Math.floor(evalElapsed / 60)).padStart(2, "0");
+    const ss = String(evalElapsed % 60).padStart(2, "0");
+
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4">
-        <Loader2 className="h-10 w-10 animate-spin text-primary" />
-        <div className="text-center space-y-1">
-          <p className="text-sm font-medium">면접 결과를 분석하고 있어요</p>
-          <p className="text-xs text-muted-foreground">답변을 바탕으로 피드백 리포트를 생성하는 중이에요.</p>
+      <div className="flex flex-1 flex-col items-center justify-center gap-8 px-4">
+        <div className="text-center space-y-2">
+          <p className="text-xs font-medium text-muted-foreground tracking-widest uppercase">분석 중</p>
+          <p className="text-2xl font-bold">{EVAL_STEPS[evalStepIndex]}</p>
+          <p className="text-sm text-muted-foreground">면접 답변을 바탕으로 피드백 리포트를 만들고 있어요</p>
         </div>
+
+        <div className="flex items-center gap-2">
+          {EVAL_STEPS.map((step, i) => (
+            <div key={step} className="flex items-center gap-2">
+              <div className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-all ${
+                i < evalStepIndex
+                  ? "bg-primary/15 text-primary"
+                  : i === evalStepIndex
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground"
+              }`}>
+                {i < evalStepIndex && (
+                  <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+                {step}
+              </div>
+              {i < EVAL_STEPS.length - 1 && (
+                <div className={`h-px w-3 ${i < evalStepIndex ? "bg-primary/40" : "bg-border"}`} />
+              )}
+            </div>
+          ))}
+        </div>
+
+        <p className="text-xs tabular-nums text-muted-foreground/60">{mm}:{ss} 경과</p>
       </div>
     );
   }
 
   if (isAnalyzing) {
+    const ANALYSIS_STEPS = [
+      { label: "직무 트렌드 파악 중", desc: "JD 키워드와 포지션 특성을 분석하고 있어요" },
+      { label: "맞춤 질문 생성 중", desc: "이력서와 JD를 교차 분석해 질문 세트를 만들고 있어요" },
+      { label: "면접 환경 구성 중", desc: "거의 다 됐어요. 잠시만 기다려 주세요" },
+    ] as const;
+    const current = ANALYSIS_STEPS[loadingMsgIndex];
+
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4">
-        <Loader2 className="h-10 w-10 animate-spin text-primary" />
-        <div className="text-center space-y-1">
-          <p className="text-sm font-medium">{LOADING_MESSAGES[loadingMsgIndex]}</p>
-          <p className="text-xs text-muted-foreground">이력서와 JD를 분석하고 첫 번째 질문을 생성하는 중이에요.</p>
+      <div className="flex flex-1 flex-col items-center justify-center gap-10 px-4">
+        <div className="flex gap-1.5">
+          {ANALYSIS_STEPS.map((_, i) => (
+            <div
+              key={i}
+              className={`h-1 rounded-full transition-all duration-500 ${
+                i === loadingMsgIndex ? "w-8 bg-primary" : i < loadingMsgIndex ? "w-4 bg-primary/35" : "w-4 bg-muted-foreground/20"
+              }`}
+            />
+          ))}
         </div>
+
+        <div className="text-center space-y-2">
+          <p className="text-xl font-semibold">{current.label}</p>
+          <p className="text-sm text-muted-foreground">{current.desc}</p>
+        </div>
+
+        <p className="text-xs italic text-muted-foreground/60 max-w-xs text-center">
+          &ldquo;깊게 숨을 한 번 들이쉬어 보세요. 준비된 당신이라면 충분합니다.&rdquo;
+        </p>
       </div>
     );
   }
