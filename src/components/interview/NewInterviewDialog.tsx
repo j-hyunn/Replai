@@ -32,8 +32,6 @@ interface NewInterviewDialogProps {
   documents: UserDocument[];
 }
 
-type JdInputMode = "link" | "text";
-
 function toOptions(docs: UserDocument[]): ComboboxOption[] {
   return docs.map((d) => ({ value: d.id, label: d.file_name ?? d.id }));
 }
@@ -50,8 +48,6 @@ export default function NewInterviewDialog({
   const [title, setTitle] = useState("");
 
   // JD
-  const [jdMode, setJdMode] = useState<JdInputMode>("link");
-  const [jdLink, setJdLink] = useState("");
   const [jdText, setJdText] = useState("");
 
   // Documents — multi-select
@@ -80,8 +76,6 @@ export default function NewInterviewDialog({
 
   function handleReset() {
     setTitle("");
-    setJdMode("link");
-    setJdLink("");
     setJdText("");
     setResumeIds([]);
     setPortfolioIds([]);
@@ -99,8 +93,7 @@ export default function NewInterviewDialog({
   function handleStart() {
     if (!canStart) return;
 
-    const jdContent =
-      jdMode === "link" ? jdLink.trim() : jdText.trim();
+    const jdContent = jdText.trim();
 
     startTransition(async () => {
       const result = await createInterviewSessionAction({
@@ -202,55 +195,18 @@ export default function NewInterviewDialog({
 
           {/* 3. JD */}
           <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">
-                지원 포지션 JD
-                <span className="ml-1 text-xs text-muted-foreground font-normal">
-                  (선택)
-                </span>
-              </label>
-              <div className="flex rounded-md border overflow-hidden text-xs">
-                <button
-                  type="button"
-                  onClick={() => setJdMode("link")}
-                  className={cn(
-                    "px-3 py-1.5 transition-colors",
-                    jdMode === "link"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-background text-muted-foreground hover:bg-muted"
-                  )}
-                >
-                  링크
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setJdMode("text")}
-                  className={cn(
-                    "px-3 py-1.5 transition-colors",
-                    jdMode === "text"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-background text-muted-foreground hover:bg-muted"
-                  )}
-                >
-                  직접 입력
-                </button>
-              </div>
-            </div>
-            {jdMode === "text" ? (
-              <Textarea
-                placeholder="JD 내용을 여기에 붙여넣으세요."
-                rows={5}
-                value={jdText}
-                onChange={(e) => setJdText(e.target.value)}
-              />
-            ) : (
-              <Input
-                type="url"
-                placeholder="https://example.com/job-description"
-                value={jdLink}
-                onChange={(e) => setJdLink(e.target.value)}
-              />
-            )}
+            <label className="text-sm font-medium">
+              지원 포지션 JD
+              <span className="ml-1 text-xs text-muted-foreground font-normal">
+                (선택)
+              </span>
+            </label>
+            <Textarea
+              placeholder="JD 내용을 여기에 붙여넣으세요."
+              rows={5}
+              value={jdText}
+              onChange={(e) => setJdText(e.target.value)}
+            />
           </section>
 
           {/* 3. Resume */}

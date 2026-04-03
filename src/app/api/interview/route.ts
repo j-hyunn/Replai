@@ -166,7 +166,7 @@ export async function POST(req: Request) {
     const prompt = buildAnalysisPrompt({
       jdText: session.jd_text ?? "",
       resumeTexts,
-      persona: session.persona ?? "startup",
+      persona: session.persona ?? "explorer",
       durationMinutes: session.duration_minutes ?? 30,
       userProfile,
     });
@@ -315,9 +315,9 @@ export async function POST(req: Request) {
 
     // Find current question from last interviewer message
     const messages = await getSessionMessages(sessionId);
-    const lastInterviewerMsg = [...messages].reverse().find((m) => m.role === "interviewer");
-    const currentQuestionId = lastInterviewerMsg?.question_id;
+    const currentQuestionId = [...messages].reverse().find((m) => m.question_id)?.question_id;
     const currentQuestionMeta = analysisJson.questions.find((q) => q.id === currentQuestionId);
+    const lastInterviewerMsg = [...messages].reverse().find((m) => m.role === "interviewer");
 
     // Generate model answer and return — client will send it as a user message via respond.
     // Pass the last 6 messages as context so the hint agent knows what project/topic is being discussed.

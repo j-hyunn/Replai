@@ -58,6 +58,7 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
   const [loadingMsgIndex, setLoadingMsgIndex] = useState(0);
   const [thinkingMsgIndex, setThinkingMsgIndex] = useState(0);
   const [evalElapsed, setEvalElapsed] = useState(0);
+  const [analysisKey, setAnalysisKey] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -145,7 +146,7 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
     }
 
     runAnalysis();
-  }, [session.id, session.analysis_json]);
+  }, [session.id, session.analysis_json, analysisKey]);
 
   const LOADING_MESSAGES = [
     "면접관이 면접을 준비하고 있어요",
@@ -211,6 +212,7 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
   }, []);
 
   async function goToReport() {
+    stopTts();
     setIsEvaluating(true);
     try {
       await fetch("/api/interview", {
@@ -469,13 +471,9 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
     setDirectInput(false);
     setInputText("");
     setTimeUpOpen(false);
+    setAnalysisError(null);
     analysisRanRef.current = false;
-    // Trigger re-analysis
-    setTimeout(() => {
-      analysisRanRef.current = false;
-      // Force re-run by re-creating the effect
-      setAnalysisError(null);
-    }, 0);
+    setAnalysisKey((prev) => prev + 1); // useEffect 재실행 트리거
   }
 
   const isLowTime = secondsLeft < totalSeconds * 0.2;
