@@ -8,12 +8,8 @@ import {
   deleteDocument,
 } from "@/lib/supabase/queries/documents";
 import type { DocumentType } from "@/lib/supabase/queries/documents";
-import { PDFParse } from "pdf-parse";
-import mammoth from "mammoth";
-
 const ALLOWED_MIME_TYPES = [
   "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
 const MAX_SIZE_BYTES: Record<DocumentType, number> = {
   resume: 10 * 1024 * 1024,    // 10MB
@@ -54,8 +50,6 @@ export async function uploadDocumentAction(
   const storagePath = `${user.id}/${documentId}`;
 
   const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-
   const { error: storageError } = await supabase.storage
     .from("documents")
     .upload(storagePath, file);
@@ -68,15 +62,22 @@ export async function uploadDocumentAction(
 
   let parsedText = "";
   try {
-    if (file.type === "application/pdf") {
-      const parser = new PDFParse({ data: buffer });
-      const result = await parser.getText();
-      parsedText = result.text.slice(0, 100_000);
-    } else {
-      const result = await mammoth.extractRawText({ buffer });
-      parsedText = result.value.slice(0, 100_000);
+    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+    const pdfDoc = await loadingTask.promise;
+    const textParts: string[] = [];
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+      const page = await pdfDoc.getPage(i);
+      const content = await page.getTextContent();
+      textParts.push(
+        content.items
+          .map((item) => ("str" in item ? item.str : ""))
+          .join(" ")
+      );
     }
-  } catch {
+    parsedText = textParts.join("\n").slice(0, 200_000);
+  } catch (e) {
+    console.error("[PDF parse error]", e);
     parsedText = "";
   }
 

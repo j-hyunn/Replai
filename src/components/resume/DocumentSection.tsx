@@ -59,7 +59,7 @@ export default function DocumentSection({
           <input
             ref={inputRef}
             type="file"
-            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            accept=".pdf,application/pdf"
             className="hidden"
             onChange={handleUpload}
             disabled={isPending}
