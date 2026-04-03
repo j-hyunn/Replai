@@ -29,7 +29,7 @@
 |**Auth**|Supabase Auth|Google OAuth, `@supabase/ssr ^0.9.0`|
 |**Storage**|Supabase Storage|무료 티어 (1GB), `documents` 버킷|
 |**배포**|Vercel|무료 티어|
-|**문서 파싱**|mammoth.js `^1.12.0`, pdf-parse `^2.4.5`|서버 사이드 파싱 (Server Actions)|
+|**문서 파싱**|`pdfjs-dist`|서버 사이드 파싱 (Server Actions), PDF 전용|
 
 ---
 
@@ -473,9 +473,8 @@ intervalRef.current = setInterval(() => {
 
 |형식|라이브러리|저장|
 |---|---|---|
-|PDF|`pdf-parse ^2.4.5`|파싱 텍스트 → DB, 원본 → Storage|
-|DOCX|`mammoth ^1.12.0`|파싱 텍스트 → DB, 원본 → Storage|
-|Git 링크|URL만 저장|`file_url`에 URL, `parsed_text`는 빈 문자열|
+|PDF|`pdfjs-dist` (serverExternalPackages로 번들 제외)|파싱 텍스트(최대 200,000자) → DB, 원본 → Storage|
+|Git 링크|GitHub API (README fetch)|`file_url`에 URL, `parsed_text`는 README 텍스트(최대 20,000자)|
 
 Storage 경로: `{user_id}/{document_id}`
 
@@ -623,7 +622,7 @@ user_api_settings
 |Gemini API 레이턴시|프록시 경유 100~300ms 추가|TTS 생성과 메시지 저장 `Promise.all` 병렬 처리|
 |Vercel 콜드 스타트|InMemorySessionService 초기화|`ensureAdkSession()` 최근 30개 메시지 재구성|
 |Vercel 함수 타임아웃|무료 티어 10초 제한|스트리밍 응답, 청크 분리|
-|Server Action 파일 크기|Next.js 기본 4MB 제한|`serverActions.bodySizeLimit: "10mb"` 설정|
+|Server Action 파일 크기|Next.js 기본 4MB 제한|`serverActions.bodySizeLimit: "21mb"` + `proxyClientMaxBodySize: "21mb"` (Turbopack) 설정|
 |Supabase DB 쓰기|무료 티어 API 제한|매 초 저장 금지, 답변 완료 단위로만 저장|
 |Storage 용량|무료 티어 1GB 제한|트래픽 증가 시 Cloudflare R2 마이그레이션 검토|
 |상위 모델 레이턴시|gemini-3.1-pro-preview는 응답이 느릴 수 있음|사용자가 선택한 모델이므로 별도 대응 없음, UI에서 안내|
@@ -642,7 +641,7 @@ user_api_settings
 |API Route 인증|모든 요청에서 `getUser()` → 세션 소유자 검증|
 |유저 문서 접근|Supabase RLS + Storage 경로 `{user_id}/{document_id}` 격리|
 |문서 삭제|DB record + Storage file `Promise.all` 동시 삭제|
-|파일 업로드|허용 형식 PDF·DOCX, 최대 10MB, Server Actions 검증|
+|파일 업로드|허용 형식 PDF 전용, 이력서 최대 10MB·포트폴리오 최대 20MB, Server Actions 검증|
 |OAuth|Supabase Auth 위임 처리, Middleware에서 세션 갱신|
 |Privacy Policy|사용자 API 키 서버 저장 사실을 서비스 약관·Privacy Policy에 명시 필요|
 

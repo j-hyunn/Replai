@@ -22,6 +22,7 @@
 16. [good_answer_tips: 힌트 에이전트 전용으로 분리](#16-good_answer_tips-힌트-에이전트-전용으로-분리)
 17. [신규 사용자 온보딩 플로우](#17-신규-사용자-온보딩-플로우)
 18. [파일 업로드 크기 제한: 3단계 설정](#18-파일-업로드-크기-제한-3단계-설정)
+19. [JD 입력: 링크 방식 제거, 텍스트 직접입력 전용](#19-jd-입력-링크-방식-제거-텍스트-직접입력-전용)
 
 ---
 
@@ -29,18 +30,22 @@
 
 **결정 (최초)**: PDF/DOCX 파싱을 브라우저(클라이언트)에서 처리한다 — `pdf.js`, `mammoth.js`
 
-**변경 (구현 중)**: 서버 사이드(Server Actions)로 변경 — `pdf-parse`, `mammoth`
+**변경 1차 (구현 중)**: 서버 사이드(Server Actions)로 변경 — `pdf-parse`, `mammoth`
 
-**변경 이유**
+**변경 2차 (2026-04-03)**: `pdf-parse` → `pdfjs-dist`로 교체. DOCX 지원 제거, PDF 전용.
 
-- 실제 구현에서 `pdf-parse`와 `mammoth`가 서버 의존성으로 포함되어 Server Actions에서 처리하는 것이 자연스러운 구조였음
-- Next.js `serverActions.bodySizeLimit: "21mb"` 설정으로 대용량 파일도 커버
-- 클라이언트 파싱 대비 일관된 파싱 품질 확보 가능
+**2차 변경 이유**
+
+- `pdf-parse` v2가 default export 함수 방식이 아닌 class 방식으로 변경 → import 호환성 문제 발생
+- v1 다운그레이드 후에도 pdfjs-dist가 더 안정적이고 텍스트 추출 품질이 높다고 판단
+- `mammoth`(DOCX) 제거: 이력서·포트폴리오 업로드 실태상 PDF만 사용하며 DOCX 허용은 불필요한 복잡도 추가
+- **Webpack 번들링 문제**: `pdfjs-dist`를 서버에서 import하면 Next.js Webpack이 worker 경로를 번들 경로로 치환 → "Setting up fake worker failed" 런타임 에러 → `next.config.ts`에 `serverExternalPackages: ["pdfjs-dist"]`로 해결
+- `parsed_text` 최대 200,000자로 제한 (기존 100,000자)
 
 **트레이드오프**
 
 - Vercel 함수 실행 시간 소비 증가 → `serverActions.bodySizeLimit: "21mb"` 설정으로 대응 (이후 3단계 크기 제한 문제 발견 — #18 참조)
-- 스캔본 PDF, 이미지 기반 문서는 여전히 파싱 불가 → 텍스트 직접 붙여넣기 옵션 병행 제공
+- 스캔본 PDF, 이미지 기반 문서는 여전히 파싱 불가 → 파싱 실패 시 `parsedText = ""`로 처리 후 업로드는 성공시킴
 
 ---
 
@@ -423,6 +428,24 @@ Google login → auth callback
 
 - Turbopack 프록시 제한(`proxyClientMaxBodySize`)은 프로덕션에서는 적용되지 않음 — Vercel 배포 시에는 [1]과 [3]만 영향
 - 세 값이 맞지 않으면 가장 작은 값에서 먼저 차단됨 → 항상 동일하게 맞출 것
+
+---
+
+## 19. JD 입력: 링크 방식 제거, 텍스트 직접입력 전용
+
+**결정** (2026-04-03): 면접 생성 다이얼로그의 JD 입력을 "링크 / 직접입력 토글" 구조에서 Textarea 직접입력 전용으로 단순화한다.
+
+**이유**
+
+- 링크 입력 시 외부 사이트 크롤링이 필요하나 MVP 범위 내 구현 비용 대비 효용이 낮음
+- 링크 방식은 인증 벽(로그인 필요 JD 페이지), 동적 렌더링 사이트에서 동작하지 않음
+- 사용자가 JD 텍스트를 복붙하는 것이 가장 빠르고 안정적인 방법
+- 복잡한 토글 UI 제거로 폼 구조 단순화
+
+**트레이드오프**
+
+- URL 한 줄로 JD를 첨부하는 편의성 감소
+- v2에서 JD URL 크롤링 지원 시 재추가 가능
 
 ---
 

@@ -222,6 +222,17 @@ export default function ApiKeySection({
                 autoComplete="off"
                 style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
               />
+              <p className="text-xs text-muted-foreground">
+                현재 <span className="font-medium text-foreground">Gemini API 키</span>만 지원합니다.{" "}
+                <a
+                  href="https://aistudio.google.com/welcome"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2 hover:text-foreground transition-colors"
+                >
+                  Google AI Studio에서 발급
+                </a>
+              </p>
               {isEditing && (
                 <p className="text-xs text-muted-foreground">
                   비워두면 기존 키를 유지하고 모델만 변경됩니다.

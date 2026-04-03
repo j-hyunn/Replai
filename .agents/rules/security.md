@@ -108,7 +108,7 @@ if (!res.ok) return { error: '유효하지 않은 API 키입니다.' };
 
 ## File Upload Security
 
-- Allowed formats: PDF, DOCX only
-- Max file size: 10MB per file
+- Allowed formats: PDF only (DOCX support removed)
+- Max file size: resume 10MB, portfolio 20MB
 - Storage path must follow `{user_id}/{document_id}` structure for isolation
 - Deletion must remove both DB record and Storage file simultaneously

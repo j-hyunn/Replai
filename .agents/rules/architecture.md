@@ -12,10 +12,12 @@ Read before designing any code structure.
 
 ```
 [Client]
-├─ Document parsing (pdf.js, mammoth.js)
 ├─ Interview timer management
 ├─ UI state (question index, conversation history, depth)
 └─ Gemini API calls → delegated to API Route
+
+[Next.js Server Actions]
+└─ Document parsing (PDF → pdfjs-dist, PDF only)
 
 [Next.js API Route]
 ├─ Gemini API proxy (protects API key)
@@ -28,11 +30,12 @@ Read before designing any code structure.
 ```
 
 ## Client Responsibilities
-- Document parsing (PDF → pdf.js, DOCX → mammoth.js)
 - Timer management (save start time to DB, calculate elapsed time on client)
 - UI state (current question index, conversation history, depth)
 
 ## Server Responsibilities
+- Document parsing: PDF → `pdfjs-dist` via Server Action (PDF only, max 200,000 chars)
+  - `serverExternalPackages: ["pdfjs-dist"]` required in `next.config.ts` to avoid Webpack bundling issues
 - Gemini API calls (proxy only, for API key protection)
 - Google OAuth handling
 
