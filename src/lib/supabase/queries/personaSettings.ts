@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 
-export type Persona = "explorer" | "pressure";
+export type Persona = "explorer" | "pressure" | "technical";
 
 export interface UserPersonaSetting {
   persona: Persona;

@@ -6,8 +6,11 @@ import { getUser } from "@/lib/supabase/auth.server";
 import {
   createDocument,
   deleteDocument,
+  updateNormalizedText,
 } from "@/lib/supabase/queries/documents";
 import type { DocumentType } from "@/lib/supabase/queries/documents";
+import { buildNormalizePrompt } from "@/lib/prompts/normalize";
+import { env } from "@/lib/env";
 const ALLOWED_MIME_TYPES = [
   "application/pdf",
 ];
@@ -81,13 +84,41 @@ export async function uploadDocumentAction(
     parsedText = "";
   }
 
-  await createDocument({
+  const doc = await createDocument({
     user_id: user.id,
     type,
     file_url: storagePath,
     file_name: file.name,
     parsed_text: parsedText,
   });
+
+  // 정규화 에이전트 — 실패해도 업로드는 성공으로 처리
+  if (parsedText) {
+    try {
+      const prompt = buildNormalizePrompt(parsedText, type);
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.googleApiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+          }),
+        }
+      );
+      if (res.ok) {
+        const data = await res.json() as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        };
+        const normalized = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (normalized) {
+          await updateNormalizedText(doc.id, normalized);
+        }
+      }
+    } catch (e) {
+      console.error("[normalize error]", e);
+    }
+  }
 
   revalidatePath("/resume");
   return {};
@@ -128,13 +159,42 @@ export async function saveGitLinkAction(
     parsedText = "";
   }
 
-  await createDocument({
+  const doc = await createDocument({
     user_id: user.id,
     type: "git",
     file_url: trimmed,
     file_name: trimmed,
     parsed_text: parsedText,
   });
+
+  // 정규화 에이전트 — 실패해도 저장은 성공으로 처리
+  if (parsedText) {
+    try {
+      const prompt = buildNormalizePrompt(parsedText, "git");
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.googleApiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+          }),
+        }
+      );
+      if (res.ok) {
+        const data = await res.json() as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        };
+        const normalized = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (normalized) {
+          await updateNormalizedText(doc.id, normalized);
+        }
+      }
+    } catch (e) {
+      console.error("[normalize error]", e);
+    }
+  }
+
   revalidatePath("/resume");
   return {};
 }

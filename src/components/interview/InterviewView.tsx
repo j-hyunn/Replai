@@ -68,6 +68,7 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
   const audioChunksRef = useRef<Blob[]>([]);
   const sendOnStopRef = useRef(false);
   const ttsEnabledRef = useRef(true);
+  const isEvaluatingRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const pendingAudioRef = useRef<string | null>(null);
 
@@ -84,11 +85,12 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
 
   function stopTts() {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    pendingAudioRef.current = null;
     setIsSpeaking(false);
   }
 
   function playBase64Audio(base64: string) {
-    if (!ttsEnabledRef.current || !base64) return;
+    if (!ttsEnabledRef.current || isEvaluatingRef.current || !base64) return;
     stopTts();
     const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
     const blob = new Blob([bytes], { type: "audio/wav" });
@@ -212,6 +214,7 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
   }, []);
 
   async function goToReport() {
+    isEvaluatingRef.current = true;
     stopTts();
     setIsEvaluating(true);
     try {

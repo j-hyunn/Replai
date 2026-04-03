@@ -29,7 +29,7 @@ export const sessionService = new InMemorySessionService();
 const interviewInstruction: InstructionProvider = (ctx) => {
   const s = ctx.state.toRecord();
   return buildInterviewSystemPrompt({
-    persona: (s.persona as "explorer" | "pressure") ?? "explorer",
+    persona: (s.persona as "explorer" | "pressure" | "technical") ?? "explorer",
     jdText: (s.jdText as string) ?? "",
     resumeTexts: (s.resumeTexts as string[]) ?? [],
     analysisJson: s.analysisJson as AnalysisOutput,

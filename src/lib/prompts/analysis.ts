@@ -36,6 +36,7 @@ export function buildAnalysisPrompt(params: {
   const personaContext = {
     explorer: "경험 탐색형 면접으로, 지원자가 자신의 경험을 편안하게 풀어낼 수 있도록 열린 질문을 선호합니다.",
     pressure: "심층 압박형 면접으로, 논리적 검증과 날카로운 꼬리질문을 통해 지원자의 사고력을 검증합니다.",
+    technical: "기술 검증형 면접으로, 이력서의 기술스택 선택 이유·설계 결정·CS 기초 원리를 중점적으로 검증합니다. 추상적이거나 근거 없는 기술 답변에는 반드시 꼬리질문하며 최대 4회까지 깊이 파고듭니다.",
   }[persona] ?? "";
 
   // resumeTexts already contains labeled sections (e.g. "[이력서: ...]\n...", "[포트폴리오: ...]\n...")

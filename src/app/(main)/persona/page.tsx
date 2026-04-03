@@ -15,6 +15,11 @@ const PERSONAS = [
     label: "심층 압박형",
     description: "논리적 허점을 짚어내며 답변을 끝까지 파고드는 날카로운 면접관",
   },
+  {
+    persona: "technical" as const,
+    label: "기술 검증형",
+    description: "설계 결정의 근거, CS 기초 원리, 성능 트레이드오프를 집요하게 검증하는 면접관",
+  },
 ] as const;
 
 export default async function PersonaPage() {

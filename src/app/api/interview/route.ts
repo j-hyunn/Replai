@@ -134,19 +134,19 @@ export async function POST(req: Request) {
     getPersonaSettings(user.id).catch(() => []),
   ]);
 
-  const currentPersona = (session.persona ?? "explorer") as "explorer" | "pressure";
+  const currentPersona = (session.persona ?? "explorer") as "explorer" | "pressure" | "technical";
   const customInstructions =
     personaSettings.find((s) => s.persona === currentPersona)?.custom_instructions ?? "";
 
   // Build labeled document sections by type for richer prompt context.
   const documentSections = documents
-    .filter((d) => d.parsed_text)
+    .filter((d) => d.normalized_text || d.parsed_text)
     .map((d) => {
       const label =
         d.type === "resume" ? "이력서"
         : d.type === "portfolio" ? "포트폴리오"
         : "GitHub 링크";
-      return `[${label}: ${d.file_name ?? d.id}]\n${d.parsed_text}`;
+      return `[${label}: ${d.file_name ?? d.id}]\n${d.normalized_text ?? d.parsed_text}`;
     });
 
   // Legacy alias used by prompts — contains all document texts.

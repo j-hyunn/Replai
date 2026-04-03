@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 
 export type SessionStatus = 'in_progress' | 'completed' | 'abandoned'
-export type Persona = 'explorer' | 'pressure'
+export type Persona = 'explorer' | 'pressure' | 'technical'
 
 export interface InterviewSession {
   id: string

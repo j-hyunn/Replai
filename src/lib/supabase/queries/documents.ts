@@ -9,6 +9,7 @@ export interface UserDocument {
   file_url: string | null
   file_name: string | null
   parsed_text: string | null
+  normalized_text: string | null
   created_at: string
   updated_at: string
 }
@@ -129,6 +130,24 @@ export async function getDocumentsByIds(ids: string[]): Promise<UserDocument[]> 
   }
 
   return data
+}
+
+/**
+ * Saves the normalized (cleaned) text for a document.
+ * Called after upload + parsing. Failure is non-fatal — callers must catch.
+ */
+export async function updateNormalizedText(
+  documentId: string,
+  normalizedText: string
+): Promise<void> {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('user_documents')
+    .update({ normalized_text: normalizedText, updated_at: new Date().toISOString() })
+    .eq('id', documentId)
+  if (error) {
+    throw new Error(`Failed to save normalized text: ${error.message}`)
+  }
 }
 
 /**
