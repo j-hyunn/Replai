@@ -12,6 +12,7 @@
 |v1.0|2026-03-31|최초 작성 (설계 문서 기반)|
 |v2.0|2026-03-31|코드베이스 반영: SequentialAgent 제거, ADK 적용 범위 수정(면접관만), runOneShot 패턴 추가, 모델 변경(gemini-2.5-flash), 콜드 스타트 재구성 로직, API Route 액션 타입 5종, 메시지 마커 시스템, DB 스키마 최신화|
 |v3.0|2026-04-01|BYOK 기능 추가: getUserAiConfig() 주입, user_api_settings 테이블, crypto.ts·ai-config.ts 신규, API Route 흐름 업데이트, 보안 섹션 확장|
+|v3.1|2026-04-04|기술 검증형(technical) 페르소나 추가: DB CHECK 제약 확장, Persona 타입 3종, 분석·면접관 에이전트 컨텍스트 맵 업데이트|
 
 ---
 
@@ -192,7 +193,7 @@ export const interviewRunner = new Runner({
 
 |state 키|내용|
 |---|---|
-|`persona`|`"explorer"` \| `"pressure"`|
+|`persona`|`"explorer"` \| `"pressure"` \| `"technical"`|
 |`jdText`|JD 텍스트|
 |`resumeTexts`|문서 섹션 배열 (레이블 포함)|
 |`analysisJson`|분석 에이전트 출력 전체|
@@ -419,7 +420,7 @@ interview_sessions
   user_id uuid → auth.users
   title text                        ← 20260331 마이그레이션 추가
   jd_text text
-  persona text ('explorer' | 'pressure')
+  persona text ('explorer' | 'pressure' | 'technical')
   duration_minutes integer
   remaining_seconds integer         ← 이어하기용
   resume_ids uuid[]
@@ -452,7 +453,7 @@ interview_reports
 user_persona_settings
   id uuid PK
   user_id uuid → auth.users
-  persona text ('explorer' | 'pressure')
+  persona text ('explorer' | 'pressure' | 'technical')
   custom_instructions text default ''
   updated_at timestamptz
   UNIQUE(user_id, persona)

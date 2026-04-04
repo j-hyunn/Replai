@@ -12,6 +12,7 @@
 |v1.0|2026-03-27|최초 작성|
 |v2.0|2026-03-31|코드베이스 반영: 모델 변경(gemini-2.5-flash), 페르소나 2종으로 확정, explorer depth 2 상한, 힌트 실시간 AI 생성으로 변경, 건너뛰기 기능 추가, 평가 출력 구조 변경, ADK 적용 범위 수정, userProfile 컨텍스트 추가|
 |v3.0|2026-04-01|버그 수정 반영: 분석 에이전트 personaContext explorer/pressure로 교체(startup·enterprise 제거). 평가 출력 구조 변경: model_answer(string) → model_answers(배열), answers[].intent 키워드 배열 추가|
+|v3.1|2026-04-04|기술 검증형(technical) 페르소나 추가: personaContext 맵, PERSONA_INSTRUCTIONS, 분석·면접관 프롬프트 파라미터 타입 3종으로 확장|
 
 ---
 
@@ -57,7 +58,7 @@ JD와 이력서를 분석해 면접 질문 세트를 생성한다. 면접관 에
 |---|---|---|---|
 |`jdText`|string|선택|JD 텍스트. 빈 문자열이면 JD 없는 면접으로 처리|
 |`resumeTexts`|string[]|필수|서버 파싱된 문서 텍스트 배열 (이력서, 포트폴리오 등 레이블 포함)|
-|`persona`|string|필수|선택된 페르소나 (`explorer` \| `pressure`)|
+|`persona`|string|필수|선택된 페르소나 (`explorer` \| `pressure` \| `technical`)|
 |`durationMinutes`|number|필수|면접 시간 (분)|
 |`userProfile`|object|선택|직군, 경력, 기술스택, 보유스킬|
 
@@ -85,9 +86,11 @@ const personaContext = {
 }[persona] ?? "";
 
 // v3.0 (수정) — explorer·pressure 2종으로 교체
+// v3.1 (추가) — technical 페르소나 추가
 const personaContext = {
   explorer: "경험 탐색형 면접으로, 지원자가 자신의 경험을 편안하게 풀어낼 수 있도록 열린 질문을 선호합니다. 꼬리질문은 최대 2회로 제한하며 대화적인 흐름을 유지합니다.",
   pressure: "심층 압박형 면접으로, 날카롭고 집요한 추가 질문을 선호합니다. 모호하거나 수치가 없는 답변에는 반드시 꼬리질문하며 최대 4회까지 깊이 파고듭니다.",
+  technical: "기술 검증형 면접으로, 설계 결정의 근거, CS 기초 원리, 성능 트레이드오프를 집요하게 검증합니다. why/how 중심 질문을 선호하며 최대 4회까지 깊이 파고듭니다.",
 }[persona] ?? "";
 ```
 
@@ -191,7 +194,7 @@ Runner (interviewRunner)
 
 |파라미터|설명|
 |---|---|
-|`persona`|`"explorer"` \| `"pressure"`|
+|`persona`|`"explorer"` \| `"pressure"` \| `"technical"`|
 |`jdText`|JD 텍스트 (없으면 직군 기반 일반 면접으로 처리)|
 |`resumeTexts`|이력서/포트폴리오 텍스트 배열|
 |`analysisJson`|분석 에이전트 출력 JSON|
@@ -233,12 +236,23 @@ Runner (interviewRunner)
 |꼬리질문 기준|모호/추상적 답변, 수치·사례 없는 답변, 흥미로운 키워드 발견 시|
 |목표 분위기|면접 끝에 "실력이 제대로 시험된 느낌" — 날카롭되 공격적이지 않게|
 
+#### technical — 기술 검증형
+
+|항목|내용|
+|---|---|
+|말투|"왜 그 방식을 선택하셨나요?", "다른 대안은 어떤 게 있었나요?"|
+|집중 영역|설계 결정 근거, CS 기초 원리 (자료구조·OS·네트워크 등), 성능 트레이드오프|
+|**꼬리질문 depth 상한**|**최대 4**|
+|꼬리질문 기준|why/how 없이 결과만 언급, 기술적 근거 부족, 트레이드오프 언급 없음|
+|목표 분위기|면접 끝에 "기술적 사고방식이 검증된 느낌" — 집요하되 교조적이지 않게|
+
 ### 페르소나별 depth 상한 비교
 
 |페르소나|depth 상한|꼬리질문 강도|
 |---|---|---|
 |explorer|**2**|보완 요청 수준 ("조금 더 구체적으로…")|
 |pressure|**4**|적극적 파고들기, 논리 검증 중심|
+|technical|**4**|설계·CS·성능 why/how 집중, 트레이드오프 검증|
 
 ### 2-3. 커스텀 지침 주입
 

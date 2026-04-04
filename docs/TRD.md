@@ -9,6 +9,7 @@
 |v1.0|2026-03-27|최초 작성|
 |v2.0|2026-03-31|코드베이스 반영 전면 업데이트: 모델 변경(gemini-2.5-flash), TTS/STT 추가, 페르소나 2종 확정, ADK 적용 범위 수정, API Route 구조 확정, DB 스키마 최신화(title·remaining_seconds·resume_ids·adk_session_id·user_profiles·user_persona_settings), 타이머 구현 방식 확정, 콜드 스타트 대응 추가, 메시지 마커 시스템 추가|
 |v3.0|2026-04-01|BYOK(Gemini) 기능 추가: user_api_settings 테이블, AES-256 암호화(crypto.ts), ai-config.ts, Settings 페이지, 지원 모델 목록, env.ts 업데이트, 보안 섹션 확장|
+|v3.1|2026-04-04|기술 검증형 페르소나 추가: DB CHECK 제약 마이그레이션, Persona 타입 3종 확장, 프롬프트 맵 업데이트|
 
 ---
 
@@ -211,6 +212,7 @@ ensureAdkSession() 호출
 |---|---|---|---|
 |`explorer`|경험 탐색형|**최대 2**|편안하고 대화적, 열린 질문, depth 2 초과 시 강제 다음 주제 전환|
 |`pressure`|심층 압박형|**최대 4**|논리적 허점 지적, 수치·사례 없으면 반드시 꼬리질문|
+|`technical`|기술 검증형|**최대 4**|설계 결정 근거·CS 원리·성능 트레이드오프 집중 검증, why/how 중심|
 
 ### 4.2 커스텀 지침 주입
 

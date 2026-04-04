@@ -151,13 +151,15 @@ create policy "own api settings only" on user_api_settings
 ## Migration Files (순서대로 적용)
 
 ```
-20260327000001_initial_schema.sql       -- user_documents, interview_sessions, interview_messages, interview_reports
-20260331000001_add_title_to_sessions.sql -- interview_sessions.title 추가
-20260331000002_add_persona_settings.sql  -- user_persona_settings 테이블
-20260401000001_add_user_api_settings.sql -- user_api_settings 테이블 (BYOK)
+20260327000001_initial_schema.sql            -- user_documents, interview_sessions, interview_messages, interview_reports
+20260331000001_add_title_to_sessions.sql      -- interview_sessions.title 추가
+20260331000002_add_persona_settings.sql       -- user_persona_settings 테이블
+20260401000001_add_user_api_settings.sql      -- user_api_settings 테이블 (BYOK)
+20260403000001_add_normalized_text.sql        -- user_documents.normalized_text 컬럼 추가
+20260403000002_add_technical_persona.sql      -- persona CHECK 제약에 'technical' 추가
 ```
 
-**주의:** initial_schema의 interview_sessions.persona CHECK 제약은 `('startup', 'enterprise', 'pressure')`로 되어 있으나, 실제 사용 값은 `'explorer' | 'pressure'`임. 신규 마이그레이션 작성 시 `'explorer' | 'pressure'`를 기준으로 한다.
+**주의:** initial_schema의 interview_sessions.persona CHECK 제약은 `('startup', 'enterprise', 'pressure')`로 되어 있으나, 실제 사용 값은 `'explorer' | 'pressure' | 'technical'`임. 신규 마이그레이션 작성 시 `'explorer' | 'pressure' | 'technical'`를 기준으로 한다.
 
 **user_profiles는 마이그레이션 파일이 없음** — 초기 스키마 이후 별도 마이그레이션 없이 추가된 것으로 보임. 실제 테이블이 없다면 아래 SQL로 생성:
 

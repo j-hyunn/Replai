@@ -23,6 +23,8 @@
 17. [신규 사용자 온보딩 플로우](#17-신규-사용자-온보딩-플로우)
 18. [파일 업로드 크기 제한: 3단계 설정](#18-파일-업로드-크기-제한-3단계-설정)
 19. [JD 입력: 링크 방식 제거, 텍스트 직접입력 전용](#19-jd-입력-링크-방식-제거-텍스트-직접입력-전용)
+20. [기술 검증형 페르소나 추가](#20-기술-검증형-페르소나-추가)
+21. [문서 업로드 UX: AddDocumentDialog + 단계별 로딩](#21-문서-업로드-ux-adddocumentdialog--단계별-로딩)
 
 ---
 
@@ -446,6 +448,62 @@ Google login → auth callback
 
 - URL 한 줄로 JD를 첨부하는 편의성 감소
 - v2에서 JD URL 크롤링 지원 시 재추가 가능
+
+---
+
+## 20. 기술 검증형 페르소나 추가
+
+**결정** (2026-04-04): 기존 `explorer` / `pressure` 2종에 `technical` 페르소나를 추가한다.
+
+**특성**
+
+- 설계 결정의 근거, CS 기초 원리, 성능 트레이드오프를 집요하게 검증
+- depth 상한: 최대 4단계 (pressure와 동일)
+- why / how 중심 질문
+
+**구현 범위**
+
+- DB: `interview_sessions.persona`, `user_persona_settings.persona` CHECK 제약에 `'technical'` 추가 (마이그레이션 `20260403000002_add_technical_persona.sql`)
+- 타입: `Persona = 'explorer' | 'pressure' | 'technical'` (sessions.ts, personaSettings.ts)
+- 프롬프트: `buildNormalizePrompt`, `buildInterviewSystemPrompt`의 `PERSONA_INSTRUCTIONS` 맵에 technical 항목 추가
+- UI: NewInterviewDialog + 페르소나 설정 페이지에 "기술 검증형" 버튼 추가
+
+---
+
+## 21. 문서 업로드 UX: AddDocumentDialog + 단계별 로딩
+
+**결정** (2026-04-04): `/resume` 페이지를 전면 리디자인. 섹션별 개별 업로드 버튼 제거, 단일 `AddDocumentDialog`로 통합.
+
+**이유**
+
+- 이력서·포트폴리오·GitHub를 한 번의 플로우에서 묶어 업로드하는 것이 자연스러운 UX
+- 정규화 에이전트 실행으로 업로드당 10~30초 소요 → 진행 상황을 시각화하지 않으면 사용자 이탈 가능성 높음
+- 섹션마다 따로 업로드 버튼이 있으면 온보딩과 /resume 간 UX 일관성이 깨짐
+
+**구조**
+
+```
+ResumePageHeader (헤더 오른쪽 "문서 추가" 버튼)
+  → AddDocumentDialog (이력서 여러 파일 + 포트폴리오 여러 파일 + GitHub URL 다수)
+    → 제출 시 단계별 진행 오버레이
+       - 문서별 0→100% 진행바 (400ms interval, 감속형)
+       - 완료 단계: 체크 아이콘 + 연한 primary 배경
+       - 진행 단계: 스피너 + primary 배경
+    → 모두 완료 시 revalidateDocumentsAction() → 페이지 갱신
+```
+
+**취소 처리**
+
+- 로딩 중 X 버튼만 닫기 허용 (dimmed 영역 클릭 차단 — `onInteractOutside` preventDefault)
+- 취소 시 `isCancelledRef`로 업로드 루프 중단
+- 이미 완료된 문서는 `uploadedDocsRef`에 추적 → `deleteDocumentAction`으로 즉시 삭제
+- 인플라이트 업로드가 완료되어도 취소 후 `deleteDocumentAction` 호출
+
+**skipRevalidate 패턴**
+
+- 개별 업로드 시 `{ skipRevalidate: true }` 전달 → `revalidatePath` 미호출
+- 전체 완료 후 `revalidateDocumentsAction()` 1회 호출로 일괄 갱신
+- 이 패턴 없으면 취소 후에도 revalidation이 완료되어 문서 카드가 나타남
 
 ---
 
