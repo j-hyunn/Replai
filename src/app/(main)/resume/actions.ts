@@ -111,9 +111,11 @@ export async function processUploadedDocumentAction(
     parsedText = "";
   }
 
-  // 정규화 에이전트 — 실패해도 업로드는 성공으로 처리
+  // 정규화 에이전트 — 50초 타임아웃, 초과 시 Storage 정리 후 에러 반환
   let normalizedText: string | undefined;
   if (parsedText) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 50_000);
     try {
       const prompt = buildNormalizePrompt(parsedText, type);
       const res = await fetch(
@@ -124,6 +126,7 @@ export async function processUploadedDocumentAction(
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
           }),
+          signal: controller.signal,
         }
       );
       if (res.ok) {
@@ -133,7 +136,13 @@ export async function processUploadedDocumentAction(
         normalizedText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
       }
     } catch (e) {
+      if (controller.signal.aborted) {
+        await supabase.storage.from("documents").remove([storagePath]);
+        return { error: "파일 처리 시간이 초과되었습니다. 다시 업로드해주세요." };
+      }
       console.error("[normalize error]", e);
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

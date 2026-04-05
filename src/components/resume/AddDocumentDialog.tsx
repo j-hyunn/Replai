@@ -180,14 +180,18 @@ export default function AddDocumentDialog({ open, onOpenChange }: AddDocumentDia
     setCurrentStepIndex(steps.length);
     setIsLoading(false);
 
-    if (errors.length > 0) {
-      toast.error(errors[0]);
-    } else {
+    // 성공한 파일이 있으면 먼저 저장 확정 (handleClose가 삭제하지 못하도록 초기화 후 revalidate)
+    if (uploadedDocsRef.current.length > 0) {
       uploadedDocsRef.current = [];
       await revalidateDocumentsAction();
-      toast.success("문서가 추가되었습니다.");
-      handleClose();
     }
+
+    if (errors.length > 0) {
+      errors.forEach((msg) => toast.error(msg));
+    } else {
+      toast.success("문서가 추가되었습니다.");
+    }
+    handleClose();
   }
 
   const hasContent =
