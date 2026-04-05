@@ -167,7 +167,7 @@ export default function AddDocumentDialog({ open, onOpenChange }: AddDocumentDia
       }
 
       if (result.error) {
-        errors.push(result.error);
+        errors.push(`${step.label}: ${result.error}`);
       } else if (result.documentId) {
         uploadedDocsRef.current.push({ id: result.documentId, storagePath: result.storagePath ?? "" });
       }
