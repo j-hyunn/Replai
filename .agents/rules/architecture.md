@@ -17,7 +17,8 @@ Read before designing any code structure.
 └─ Gemini API calls → delegated to API Route
 
 [Next.js Server Actions]
-└─ Document parsing (PDF → pdfjs-dist, PDF only)
+├─ Presigned URL issuance (metadata validation only, file not sent)
+└─ Document parsing (Storage download → unpdf → normalize → DB save)
 
 [Next.js API Route]
 ├─ Gemini API proxy (protects API key)
@@ -34,8 +35,11 @@ Read before designing any code structure.
 - UI state (current question index, conversation history, depth)
 
 ## Server Responsibilities
-- Document parsing: PDF → `pdfjs-dist` via Server Action (PDF only, max 200,000 chars)
-  - `serverExternalPackages: ["pdfjs-dist"]` required in `next.config.ts` to avoid Webpack bundling issues
+- Document upload (2-step flow):
+  1. `getUploadUrlAction` — validate metadata (mimeType, size), issue Supabase Presigned URL. File never passes through Vercel.
+  2. `processUploadedDocumentAction` — download from Supabase Storage (server-to-server, no Vercel size limit), parse with `unpdf`, normalize, save to DB
+  - `serverExternalPackages: ["unpdf"]` required in `next.config.ts`
+  - Client uploads directly to Supabase Storage via `uploadToSignedUrl` (bypasses Vercel 4.5MB limit)
 - Gemini API calls (proxy only, for API key protection)
 - Google OAuth handling
 

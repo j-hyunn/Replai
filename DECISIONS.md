@@ -25,6 +25,7 @@
 19. [JD 입력: 링크 방식 제거, 텍스트 직접입력 전용](#19-jd-입력-링크-방식-제거-텍스트-직접입력-전용)
 20. [기술 검증형 페르소나 추가](#20-기술-검증형-페르소나-추가)
 21. [문서 업로드 UX: AddDocumentDialog + 단계별 로딩](#21-문서-업로드-ux-adddocumentdialog--단계별-로딩)
+22. [파일 업로드: Presigned URL 방식 전환 + unpdf 교체](#22-파일-업로드-presigned-url-방식-전환--unpdf-교체)
 
 ---
 
@@ -504,6 +505,59 @@ ResumePageHeader (헤더 오른쪽 "문서 추가" 버튼)
 - 개별 업로드 시 `{ skipRevalidate: true }` 전달 → `revalidatePath` 미호출
 - 전체 완료 후 `revalidateDocumentsAction()` 1회 호출로 일괄 갱신
 - 이 패턴 없으면 취소 후에도 revalidation이 완료되어 문서 카드가 나타남
+
+---
+
+## 22. 파일 업로드: Presigned URL 방식 전환 + unpdf 교체
+
+**결정** (2026-04-05): 파일 업로드 흐름을 "Server Action 경유" 방식에서 "클라이언트 → Supabase Storage 직접 업로드" 방식으로 전환한다. PDF 파서도 `pdfjs-dist` → `unpdf`로 교체한다.
+
+**배경 (기존 방식의 문제)**
+
+- Vercel 무료 플랜 Request Body 4.5MB 하드 제한 → 대용량 PDF 업로드 시 413 에러 발생
+- `pdfjs-dist`가 Vercel 서버리스 환경에서 `DOMMatrix is not defined` 에러로 파싱 실패
+- `serverActions.bodySizeLimit: "21mb"` 설정으로 대응했으나 Vercel 플랫폼 제한은 우회 불가
+
+**새로운 업로드 흐름 (3단계)**
+
+```
+[기존]
+클라이언트 → (파일 포함) Server Action → Supabase Storage + 파싱 → DB
+
+[변경 후]
+1. 클라이언트 → getUploadUrlAction() → Presigned URL 발급
+2. 클라이언트 → Supabase Storage 직접 업로드 (Vercel 미경유)
+3. 클라이언트 → processUploadedDocumentAction() → Storage에서 파일 다운로드 → 파싱 → DB 저장
+```
+
+**핵심 포인트**
+
+- 파일 자체는 Vercel을 전혀 경유하지 않음 → Vercel 4.5MB 제한 완전 우회
+- 파싱은 서버 간 통신(Supabase → Vercel Server Action)으로 처리 — 파일 바이너리가 아닌 Storage 다운로드이므로 제한 없음
+- `storagePath.startsWith(${user.id}/)` 검증으로 타 사용자 Storage 경로 접근 방지
+
+**패키지 변경**
+
+| | 변경 전 | 변경 후 |
+|---|---|---|
+| PDF 파서 | `pdfjs-dist` | `unpdf` |
+| next.config.ts | `serverExternalPackages: ["pdfjs-dist"]` | `serverExternalPackages: ["unpdf"]` |
+
+**unpdf 선택 이유**
+
+- `pdfjs-dist`: Vercel 서버리스에서 `DOMMatrix` 전역 객체 미존재로 런타임 에러
+- `unpdf`: 서버리스 환경을 고려해 설계된 라이브러리, DOM 의존성 없음
+
+**트레이드오프**
+
+- 업로드 완료 전 Storage에 고아 파일이 생길 수 있음 (클라이언트 업로드 성공 + processUploadedDocumentAction 실패 시) → 현재는 처리하지 않음. Storage 정리는 v2에서 cron job으로 처리 검토
+- 취소 시 이미 Storage에 올라간 파일은 `deleteDocumentAction`으로 명시 삭제
+
+**변경 파일**
+
+- `src/app/(main)/resume/actions.ts` — `uploadDocumentAction` 제거 → `getUploadUrlAction` + `processUploadedDocumentAction` 분리
+- `src/components/resume/AddDocumentDialog.tsx` — 3단계 업로드 흐름 적용
+- `src/components/common/DocumentCard.tsx` — 3단계 업로드 흐름 적용, DOCX accept 제거
 
 ---
 

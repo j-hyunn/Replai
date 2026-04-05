@@ -10,6 +10,7 @@
 |v2.0|2026-03-31|코드베이스 반영 전면 업데이트: 모델 변경(gemini-2.5-flash), TTS/STT 추가, 페르소나 2종 확정, ADK 적용 범위 수정, API Route 구조 확정, DB 스키마 최신화(title·remaining_seconds·resume_ids·adk_session_id·user_profiles·user_persona_settings), 타이머 구현 방식 확정, 콜드 스타트 대응 추가, 메시지 마커 시스템 추가|
 |v3.0|2026-04-01|BYOK(Gemini) 기능 추가: user_api_settings 테이블, AES-256 암호화(crypto.ts), ai-config.ts, Settings 페이지, 지원 모델 목록, env.ts 업데이트, 보안 섹션 확장|
 |v3.1|2026-04-04|기술 검증형 페르소나 추가: DB CHECK 제약 마이그레이션, Persona 타입 3종 확장, 프롬프트 맵 업데이트|
+|v3.2|2026-04-05|파일 업로드 Presigned URL 전환: Vercel 4.5MB 제한 우회, `pdfjs-dist` → `unpdf` 교체, `uploadDocumentAction` → `getUploadUrlAction` + `processUploadedDocumentAction` 분리|
 
 ---
 
@@ -30,7 +31,7 @@
 |**Auth**|Supabase Auth|Google OAuth, `@supabase/ssr ^0.9.0`|
 |**Storage**|Supabase Storage|무료 티어 (1GB), `documents` 버킷|
 |**배포**|Vercel|무료 티어|
-|**문서 파싱**|`pdfjs-dist`|서버 사이드 파싱 (Server Actions), PDF 전용|
+|**문서 파싱**|`unpdf`|서버 사이드 파싱 (Server Actions), PDF 전용, 서버리스 환경 대응|
 
 ---
 
@@ -49,7 +50,7 @@
 ├─ /api/interview     — 5개 액션 (analyze / respond / hint / skip / evaluate)
 ├─ /api/transcribe    — STT: 오디오 → 텍스트 (항상 서버 키)
 ├─ /api/tts           — TTS: 텍스트 → WAV (항상 서버 키)
-├─ Server Actions     — 세션 생성·상태 업데이트·타이머 저장·API 키 저장
+├─ Server Actions     — 세션 생성·상태 업데이트·타이머 저장·API 키 저장·Presigned URL 발급·파싱+DB 저장
 └─ Middleware         — Supabase 세션 갱신
 
 [Supabase]
