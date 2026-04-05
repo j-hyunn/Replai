@@ -12,7 +12,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { uploadDocumentAction, saveGitLinkAction, deleteDocumentAction, revalidateDocumentsAction } from "@/app/(main)/resume/actions";
+import { getUploadUrlAction, processUploadedDocumentAction, saveGitLinkAction, deleteDocumentAction, revalidateDocumentsAction } from "@/app/(main)/resume/actions";
+import { createClient } from "@/lib/supabase/client";
 
 interface AddDocumentDialogProps {
   open: boolean;
@@ -124,10 +125,35 @@ export default function AddDocumentDialog({ open, onOpenChange }: AddDocumentDia
 
       let result;
       if (step.kind === "resume" || step.kind === "portfolio") {
-        const fd = new FormData();
-        fd.append("file", step.file);
-        fd.append("type", step.kind);
-        result = await uploadDocumentAction(fd, { skipRevalidate: true });
+        // 1단계: Presigned URL 발급
+        const urlResult = await getUploadUrlAction(
+          step.kind,
+          step.file.name,
+          step.file.size,
+          step.file.type
+        );
+        if (urlResult.error) {
+          result = { error: urlResult.error };
+        } else {
+          // 2단계: Supabase에 직접 업로드 (Vercel 미경유)
+          const supabase = createClient();
+          const { error: uploadError } = await supabase.storage
+            .from("documents")
+            .uploadToSignedUrl(urlResult.storagePath!, urlResult.token!, step.file);
+
+          if (uploadError) {
+            result = { error: `파일 업로드에 실패했습니다: ${uploadError.message}. 다시 시도해주세요.` };
+          } else {
+            // 3단계: 파싱 + DB 저장
+            result = await processUploadedDocumentAction(
+              urlResult.documentId!,
+              urlResult.storagePath!,
+              step.kind,
+              step.file.name,
+              { skipRevalidate: true }
+            );
+          }
+        }
       } else {
         result = await saveGitLinkAction(step.url, { skipRevalidate: true });
       }

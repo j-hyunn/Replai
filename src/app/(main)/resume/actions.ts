@@ -25,46 +25,78 @@ export interface ActionResult {
   storagePath?: string;
 }
 
-export async function uploadDocumentAction(
-  formData: FormData,
-  options?: { skipRevalidate?: boolean }
-): Promise<ActionResult> {
+// 1단계: Presigned URL 발급
+// 파일은 전달받지 않음 — 메타데이터만 검증 후 업로드 URL 반환
+export async function getUploadUrlAction(
+  type: DocumentType,
+  _fileName: string,
+  fileSize: number,
+  mimeType: string
+): Promise<{ error?: string; signedUrl?: string; token?: string; storagePath?: string; documentId?: string }> {
   const user = await getUser();
   if (!user) return { error: "로그인이 필요합니다. 다시 로그인해주세요." };
 
-  const file = formData.get("file") as File | null;
-  const type = formData.get("type") as DocumentType | null;
-
-  if (!file || !type) {
-    return { error: "파일과 문서 유형이 필요합니다. 다시 시도해주세요." };
-  }
-
-  if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-    return { error: "PDF 또는 DOCX 파일만 업로드할 수 있습니다." };
+  if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
+    return { error: "PDF 파일만 업로드할 수 있습니다." };
   }
 
   const maxBytes = MAX_SIZE_BYTES[type] ?? 10 * 1024 * 1024;
-  if (file.size > maxBytes) {
+  if (fileSize > maxBytes) {
     const maxMb = maxBytes / (1024 * 1024);
     return { error: `파일 크기는 ${maxMb}MB 이하여야 합니다.` };
   }
 
   const supabase = await createClient();
   const documentId = crypto.randomUUID();
-  // Storage path follows {user_id}/{document_id} structure for isolation
   const storagePath = `${user.id}/${documentId}`;
 
-  const arrayBuffer = await file.arrayBuffer();
-  const { error: storageError } = await supabase.storage
+  const { data, error } = await supabase.storage
     .from("documents")
-    .upload(storagePath, file);
+    .createSignedUploadUrl(storagePath);
 
-  if (storageError) {
-    return {
-      error: `파일 업로드에 실패했습니다: ${storageError.message}. 다시 시도해주세요.`,
-    };
+  if (error || !data) {
+    return { error: `업로드 URL 생성에 실패했습니다: ${error?.message}. 다시 시도해주세요.` };
   }
 
+  return {
+    signedUrl: data.signedUrl,
+    token: data.token,
+    storagePath,
+    documentId,
+  };
+}
+
+// 2단계: 업로드 완료 후 파싱 + DB 저장
+// 클라이언트가 Supabase에 직접 업로드 완료 후 호출
+export async function processUploadedDocumentAction(
+  _documentId: string,
+  storagePath: string,
+  type: DocumentType,
+  fileName: string,
+  options?: { skipRevalidate?: boolean }
+): Promise<ActionResult> {
+  const user = await getUser();
+  if (!user) return { error: "로그인이 필요합니다. 다시 로그인해주세요." };
+
+  // storagePath가 현재 유저 소유인지 검증
+  if (!storagePath.startsWith(`${user.id}/`)) {
+    return { error: "잘못된 접근입니다." };
+  }
+
+  const supabase = await createClient();
+
+  // Supabase Storage에서 파일 다운로드 (서버 간 통신 — Vercel 4.5MB 제한 없음)
+  const { data: fileData, error: downloadError } = await supabase.storage
+    .from("documents")
+    .download(storagePath);
+
+  if (downloadError || !fileData) {
+    return { error: `파일 로드에 실패했습니다: ${downloadError?.message}. 다시 시도해주세요.` };
+  }
+
+  const arrayBuffer = await fileData.arrayBuffer();
+
+  // unpdf로 텍스트 추출
   let parsedText = "";
   try {
     const { extractText } = await import("unpdf");
@@ -105,21 +137,14 @@ export async function uploadDocumentAction(
     }
   }
 
-  let doc;
-  try {
-    doc = await createDocument({
-      user_id: user.id,
-      type,
-      file_url: storagePath,
-      file_name: file.name,
-      parsed_text: parsedText,
-      normalized_text: normalizedText,
-    });
-  } catch (e) {
-    await supabase.storage.from("documents").remove([storagePath]);
-    console.error("[createDocument error]", e);
-    return { error: "문서 저장에 실패했습니다. 다시 시도해주세요." };
-  }
+  const doc = await createDocument({
+    user_id: user.id,
+    type,
+    file_url: storagePath,
+    file_name: fileName,
+    parsed_text: parsedText,
+    normalized_text: normalizedText,
+  });
 
   if (!options?.skipRevalidate) revalidatePath("/resume");
   return { documentId: doc.id, storagePath };

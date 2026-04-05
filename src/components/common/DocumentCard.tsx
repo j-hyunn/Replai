@@ -11,7 +11,8 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { uploadDocumentAction, deleteDocumentAction } from "@/app/(main)/resume/actions";
+import { getUploadUrlAction, processUploadedDocumentAction, deleteDocumentAction } from "@/app/(main)/resume/actions";
+import { createClient } from "@/lib/supabase/client";
 import type { UserDocument, DocumentType } from "@/lib/supabase/queries/documents";
 
 interface DocumentCardProps {
@@ -36,18 +37,40 @@ export default function DocumentCard({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("type", type);
-
     startTransition(async () => {
-      const result = await uploadDocumentAction(formData);
+      // 1단계: Presigned URL 발급
+      const urlResult = await getUploadUrlAction(type, file.name, file.size, file.type);
+      if (urlResult.error) {
+        toast.error(urlResult.error);
+        if (inputRef.current) inputRef.current.value = "";
+        return;
+      }
+
+      // 2단계: Supabase에 직접 업로드
+      const supabase = createClient();
+      const { error: uploadError } = await supabase.storage
+        .from("documents")
+        .uploadToSignedUrl(urlResult.storagePath!, urlResult.token!, file);
+
+      if (uploadError) {
+        toast.error(`파일 업로드에 실패했습니다: ${uploadError.message}. 다시 시도해주세요.`);
+        if (inputRef.current) inputRef.current.value = "";
+        return;
+      }
+
+      // 3단계: 파싱 + DB 저장
+      const result = await processUploadedDocumentAction(
+        urlResult.documentId!,
+        urlResult.storagePath!,
+        type,
+        file.name
+      );
+
       if (result.error) {
         toast.error(result.error);
       } else {
         toast.success(`${label}이(가) 업로드되었습니다.`);
       }
-      // Reset input so the same file can be re-selected
       if (inputRef.current) inputRef.current.value = "";
     });
   }
@@ -101,7 +124,7 @@ export default function DocumentCard({
                 <input
                   ref={inputRef}
                   type="file"
-                  accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  accept=".pdf,application/pdf"
                   className="hidden"
                   onChange={handleUpload}
                   disabled={isPending}
