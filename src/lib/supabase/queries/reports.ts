@@ -35,7 +35,9 @@ export interface ReportJson {
   total_score: number
   summary: string
   strengths: string
+  strength_keywords?: string[]
   improvements: string
+  improvement_keywords?: string[]
   answers: AnswerReport[]
 }
 

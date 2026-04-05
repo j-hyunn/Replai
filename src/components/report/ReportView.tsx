@@ -139,34 +139,82 @@ export default function ReportView({ data, createdAt }: ReportViewProps) {
 }
 
 function SummaryPanel({ data }: { data: ReportJson }) {
-  return (
-    <>
-      {/* 종합 평가 */}
-      <div className="space-y-1">
-        <h2 className="text-base font-semibold">종합 평가</h2>
-        <p className="text-xs text-muted-foreground">면접 전반에 대한 평가</p>
-      </div>
-      <p className="text-sm leading-relaxed text-muted-foreground">{data.summary}</p>
+  const avgScores = data.answers.length > 0
+    ? {
+      logic: Math.round(data.answers.reduce((s, a) => s + a.scores.logic, 0) / data.answers.length),
+      specificity: Math.round(data.answers.reduce((s, a) => s + a.scores.specificity, 0) / data.answers.length),
+      job_fit: Math.round(data.answers.reduce((s, a) => s + a.scores.job_fit, 0) / data.answers.length),
+    }
+    : null;
 
-      <Separator />
+  return (
+    <div className="space-y-4">
+      {/* 점수 히어로 */}
+      <div className="flex items-center gap-6 rounded-xl bg-muted/50 px-5 py-4">
+        <div className="flex h-[72px] w-[72px] shrink-0 flex-col items-center justify-center rounded-full border-2 border-border">
+          <span className="text-2xl font-semibold tabular-nums leading-none">{data.total_score}</span>
+          <span className="mt-0.5 text-[11px] text-muted-foreground">/100</span>
+        </div>
+        {avgScores && (
+          <div className="flex flex-1 flex-col gap-2">
+            {(["logic", "specificity", "job_fit"] as const).map((key) => (
+              <div key={key} className="flex items-center gap-2">
+                <span className="w-16 shrink-0 text-xs text-muted-foreground">{SCORE_LABELS[key]}</span>
+                <div className="flex-1 h-1.5 overflow-hidden rounded-full bg-border">
+                  <div
+                    className="h-full rounded-full bg-foreground transition-all"
+                    style={{ width: `${avgScores[key]}%` }}
+                  />
+                </div>
+                <span className="w-7 text-right text-xs tabular-nums text-muted-foreground">{avgScores[key]}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 종합 평가 */}
+      <div className="rounded-xl border px-5 py-4 space-y-2">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">종합 평가</p>
+        <p className="text-sm leading-relaxed">{data.summary}</p>
+      </div>
 
       {/* 잘한 점 */}
-      <div className="space-y-1">
-        <h2 className="text-base font-semibold">잘한 점</h2>
-        <p className="text-xs text-muted-foreground">면접 전반에서 돋보인 강점</p>
+      <div className="rounded-xl bg-green-50 dark:bg-green-950/30 px-5 py-4 space-y-2">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-green-700 dark:text-green-400">잘한 점</p>
+        <p className="text-sm leading-relaxed text-green-900 dark:text-green-100">{data.strengths}</p>
+        {data.strength_keywords && data.strength_keywords.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {data.strength_keywords.map((kw) => (
+              <span
+                key={kw}
+                className="rounded-full bg-green-200 px-2.5 py-0.5 text-xs text-green-800 dark:bg-green-800 dark:text-green-100"
+              >
+                {kw}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
-      <p className="text-sm leading-relaxed text-muted-foreground">{data.strengths}</p>
-
-      <Separator />
 
       {/* 개선할 점 */}
-      <div className="space-y-1">
-        <h2 className="text-base font-semibold">개선할 점</h2>
-        <p className="text-xs text-muted-foreground">면접 전반에서 보완이 필요한 부분</p>
+      <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 px-5 py-4 space-y-2">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-amber-700 dark:text-amber-400">개선할 점</p>
+        <p className="text-sm leading-relaxed text-amber-900 dark:text-amber-100">{data.improvements}</p>
+        {data.improvement_keywords && data.improvement_keywords.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {data.improvement_keywords.map((kw) => (
+              <span
+                key={kw}
+                className="rounded-full bg-amber-200 px-2.5 py-0.5 text-xs text-amber-800 dark:bg-amber-800 dark:text-amber-100"
+              >
+                {kw}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
-      <p className="text-sm leading-relaxed text-muted-foreground">{data.improvements}</p>
-
-    </>
+    </div>
   );
 }
 
@@ -192,6 +240,15 @@ function groupTurnsIntoExchanges(turns: QaTurn[]): Array<{ question: string; ans
   return exchanges;
 }
 
+// intent 배열을 chip 배열로 정규화하는 헬퍼
+function normalizeIntentChips(
+  intent: string | string[] | undefined
+): string[] {
+  if (!intent) return [];
+  if (Array.isArray(intent)) return intent.filter(Boolean);
+  return intent.split(/[,·•\n]+/).map((s) => s.trim()).filter(Boolean);
+}
+
 function AnswerPanel({ answer, index }: AnswerPanelProps) {
   const exchanges =
     answer.turns && answer.turns.length > 0
@@ -200,19 +257,75 @@ function AnswerPanel({ answer, index }: AnswerPanelProps) {
 
   const modelAnswers: (ModelAnswerEntry | null)[] = answer.model_answers ?? [];
 
+  // exchanges[0] = 본질문, exchanges[1..] = 꼬리질문
+  const mainExchange = exchanges?.[0] ?? null;
+  const followUps = exchanges ? exchanges.slice(1) : [];
+  const mainModel = modelAnswers[0] ?? null;
+
+  // 본질문 intent: model_answers[0].intent 우선, 없으면 answer.intent 폴백
+  const mainIntentChips = normalizeIntentChips(
+    mainModel?.intent ?? answer.intent
+  );
+
   return (
-    <>
-      {/* Question header */}
-      <div className="space-y-1">
-        <p className="text-xs text-muted-foreground">Q{index + 1}</p>
-        <h2 className="text-base font-semibold leading-relaxed">{answer.question}</h2>
+    <div className="space-y-4">
+      {/* 본질문 — 타이틀 + intent chips + 내 답변 아코디언 */}
+      <div>
+        <div className="mb-2 space-y-1.5">
+          <p className="text-xs text-muted-foreground">Q{index + 1}</p>
+          <h2 className="text-base font-semibold leading-relaxed">{answer.question}</h2>
+          {mainIntentChips.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-0.5">
+              {mainIntentChips.map((chip, ci) => (
+                <span
+                  key={ci}
+                  className="inline-block rounded-full bg-primary/8 border border-primary/20 px-2.5 py-0.5 text-[11px] text-primary/80"
+                >
+                  {chip}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <Card>
+          <CardContent className="p-0">
+            <Accordion type="single" collapsible>
+              <AccordionItem value="main" className="border-none">
+                <AccordionTrigger className="px-4 py-3 text-sm hover:no-underline">
+                  내 답변 / 모범 답변 보기
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-4 space-y-3">
+                  {mainExchange?.answer ? (
+                    <div className="rounded-lg bg-primary/5 px-3 py-2 text-sm text-muted-foreground leading-relaxed">
+                      {mainExchange.answer}
+                    </div>
+                  ) : answer.answer ? (
+                    <div className="rounded-lg bg-primary/5 px-3 py-2 text-sm text-muted-foreground leading-relaxed">
+                      {answer.answer}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">답변 없음</p>
+                  )}
+                  {mainModel && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-semibold text-muted-foreground">모범 답안</p>
+                      <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm leading-relaxed text-muted-foreground">
+                        {mainModel.model_answer}
+                      </div>
+                    </div>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Scores + Feedback */}
+      {/* 피드백 카드 */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold">점수 및 피드백</CardTitle>
+            <CardTitle className="text-sm font-semibold">피드백</CardTitle>
             <ScoreBadge score={answer.average} />
           </div>
         </CardHeader>
@@ -230,91 +343,63 @@ function AnswerPanel({ answer, index }: AnswerPanelProps) {
         </CardContent>
       </Card>
 
-      {/* Question list + answers (with per-question model answer) */}
-      {exchanges ? (
+      {/* 꼬리질문 목록 */}
+      {followUps.length > 0 && (
         <div className="space-y-3">
-          {exchanges.map((ex, i) => {
-            const modelEntry = modelAnswers[i] ?? null;
+          {followUps.map((ex, i) => {
+            const modelEntry = modelAnswers[i + 1] ?? null;
+            const followUpChips = normalizeIntentChips(modelEntry?.intent);
             return (
-              <Card key={i}>
-                <CardContent className="p-0">
-                  <Accordion type="single" collapsible>
-                    <AccordionItem value="answer" className="border-none">
-                      <AccordionTrigger className="px-4 py-3 hover:no-underline">
-                        <div className="flex flex-col items-start gap-1 text-left">
-                          <span className="text-[11px] text-muted-foreground">
-                            {i === 0 ? "본 질문" : `꼬리질문 ${i}`}
-                          </span>
-                          <span className="text-sm font-medium leading-snug">{ex.question}</span>
-                        </div>
-                      </AccordionTrigger>
-                      <AccordionContent className="px-4 pb-4 space-y-3">
-                        {(() => {
-                          const rawIntent = modelEntry?.intent ?? (i === 0 ? answer.intent : undefined);
-                          if (!rawIntent) return null;
-                          const chips = Array.isArray(rawIntent)
-                            ? rawIntent
-                            : rawIntent.split(/[,·•\n]+/).map((s: string) => s.trim()).filter(Boolean);
-                          return chips.length > 0 ? (
-                            <div className="flex flex-wrap gap-1.5">
-                              {chips.map((chip: string, ci: number) => (
-                                <span key={ci} className="inline-block rounded-full bg-primary/8 border border-primary/20 px-2.5 py-0.5 text-[11px] text-primary/80">
-                                  {chip}
-                                </span>
-                              ))}
+              <div key={i}>
+                <div className="mb-2 space-y-1.5">
+                  <p className="text-xs text-muted-foreground">꼬리질문 {i + 1}</p>
+                  <p className="text-sm font-medium leading-snug">{ex.question}</p>
+                  {followUpChips.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      {followUpChips.map((chip, ci) => (
+                        <span
+                          key={ci}
+                          className="inline-block rounded-full bg-primary/8 border border-primary/20 px-2.5 py-0.5 text-[11px] text-primary/80"
+                        >
+                          {chip}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <Card>
+                  <CardContent className="p-0">
+                    <Accordion type="single" collapsible>
+                      <AccordionItem value={`followup-${i}`} className="border-none">
+                        <AccordionTrigger className="px-4 py-3 text-sm hover:no-underline">
+                          내 답변 / 모범 답변 보기
+                        </AccordionTrigger>
+                        <AccordionContent className="px-4 pb-4 space-y-3">
+                          {ex.answer ? (
+                            <div className="rounded-lg bg-primary/5 px-3 py-2 text-sm text-muted-foreground leading-relaxed">
+                              {ex.answer}
                             </div>
-                          ) : null;
-                        })()}
-                        {ex.answer ? (
-                          <div className="rounded-lg bg-primary/5 px-3 py-2 text-sm text-muted-foreground leading-relaxed">
-                            {ex.answer}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground italic">답변 없음</p>
-                        )}
-                        {modelEntry && (
-                          <div className="space-y-1.5">
-                            <p className="text-[11px] font-semibold text-muted-foreground">모범 답안</p>
-                            <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm leading-relaxed text-muted-foreground">
-                              {modelEntry.model_answer}
+                          ) : (
+                            <p className="text-sm text-muted-foreground italic">답변 없음</p>
+                          )}
+                          {modelEntry && (
+                            <div className="space-y-1.5">
+                              <p className="text-[11px] font-semibold text-muted-foreground">모범 답안</p>
+                              <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm leading-relaxed text-muted-foreground">
+                                {modelEntry.model_answer}
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                </CardContent>
-              </Card>
+                          )}
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
+                  </CardContent>
+                </Card>
+              </div>
             );
           })}
         </div>
-      ) : (
-        // Fallback for reports generated before turns were stored
-        <Card>
-          <CardContent className="p-0">
-            <Accordion type="single" collapsible>
-              <AccordionItem value="answer" className="border-none">
-                <AccordionTrigger className="px-4 py-3 text-sm font-semibold hover:no-underline">
-                  내 답변
-                </AccordionTrigger>
-                <AccordionContent className="px-4 pb-4 space-y-3">
-                  <div className="rounded-lg bg-primary/5 px-3 py-2 text-sm text-muted-foreground leading-relaxed">
-                    {answer.answer}
-                  </div>
-                  {modelAnswers[0] && (
-                    <div className="space-y-1.5">
-                      <p className="text-[11px] font-semibold text-muted-foreground">모범 답안</p>
-                      <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm leading-relaxed text-muted-foreground">
-                        {modelAnswers[0].model_answer}
-                      </div>
-                    </div>
-                  )}
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </CardContent>
-        </Card>
       )}
-    </>
+    </div>
   );
 }

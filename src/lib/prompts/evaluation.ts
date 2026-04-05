@@ -4,7 +4,9 @@ export interface EvaluationOutput {
   total_score: number;
   summary: string;
   strengths: string;
+  strength_keywords: string[];
   improvements: string;
+  improvement_keywords: string[];
   answers: Array<{
     question_id: string;
     question: string;
@@ -93,6 +95,8 @@ ${groupedText}
 5. summary: 전체 면접에 대한 종합 평가를 3~5문장으로 작성하세요. 모범 답안 참조·건너뛰기 사용 여부도 언급하세요.
 6. strengths: 면접 전반에서 지원자가 잘한 점을 3~5문장으로 서술하세요. 특정 질문을 언급하더라도 전체 흐름 속에서의 강점을 중심으로 작성하세요.
 7. improvements: 면접 전반에서 지원자가 개선해야 할 포인트를 3~5문장으로 서술하세요. 부족했던 부분과 구체적인 개선 방향을 중심으로 작성하세요.
+8. strength_keywords: strengths에서 핵심 강점을 2~4개의 짧은 명사형 키워드 배열로 추출하세요. 예: ["논리적 구조", "직무 이해도", "두괄식 답변"]. 문장 금지.
+9. improvement_keywords: improvements에서 핵심 개선 포인트를 2~4개의 짧은 명사형 키워드 배열로 추출하세요. 예: ["수치 기반 근거", "답변 간결성"]. 문장 금지.
 
 ## 모범 답안 생성 지침 (model_answers)
 
@@ -125,7 +129,9 @@ ${groupedText}
   "total_score": 82,
   "summary": "전체 면접 종합 평가 (3~5문장)",
   "strengths": "면접 전반에서 잘한 점 (3~5문장)",
+  "strength_keywords": ["강점키워드1", "강점키워드2"],
   "improvements": "면접 전반에서 개선할 점 (3~5문장)",
+  "improvement_keywords": ["개선키워드1", "개선키워드2"],
   "answers": [
     {
       "question_id": "q1",
