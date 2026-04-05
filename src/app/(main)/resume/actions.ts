@@ -67,22 +67,13 @@ export async function uploadDocumentAction(
 
   let parsedText = "";
   try {
-    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    // Node.js server environment — no browser worker needed
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "";
-    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
-    const pdfDoc = await loadingTask.promise;
-    const textParts: string[] = [];
-    for (let i = 1; i <= pdfDoc.numPages; i++) {
-      const page = await pdfDoc.getPage(i);
-      const content = await page.getTextContent();
-      textParts.push(
-        content.items
-          .map((item) => ("str" in item ? item.str : ""))
-          .join(" ")
-      );
-    }
-    parsedText = textParts.join("\n").slice(0, 200_000);
+    const { extractText } = await import("unpdf");
+    const { text } = await extractText(new Uint8Array(arrayBuffer), {
+      mergePages: false,
+    });
+    parsedText = Array.isArray(text)
+      ? text.join("\n").slice(0, 200_000)
+      : String(text).slice(0, 200_000);
   } catch (e) {
     console.error("[PDF parse error]", e);
     parsedText = "";
