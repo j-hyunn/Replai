@@ -1,3 +1,5 @@
+export const maxDuration = 60;
+
 import { getUser } from "@/lib/supabase/auth.server";
 import { getUserDocuments } from "@/lib/supabase/queries/documents";
 import ResumePageHeader from "@/components/resume/ResumePageHeader";

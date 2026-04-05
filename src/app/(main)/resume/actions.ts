@@ -68,11 +68,8 @@ export async function uploadDocumentAction(
   let parsedText = "";
   try {
     const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    const { join } = await import("path");
-    pdfjsLib.GlobalWorkerOptions.workerSrc = join(
-      process.cwd(),
-      "node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"
-    );
+    // Node.js server environment — no browser worker needed
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "";
     const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
     const pdfDoc = await loadingTask.promise;
     const textParts: string[] = [];
@@ -117,14 +114,21 @@ export async function uploadDocumentAction(
     }
   }
 
-  const doc = await createDocument({
-    user_id: user.id,
-    type,
-    file_url: storagePath,
-    file_name: file.name,
-    parsed_text: parsedText,
-    normalized_text: normalizedText,
-  });
+  let doc;
+  try {
+    doc = await createDocument({
+      user_id: user.id,
+      type,
+      file_url: storagePath,
+      file_name: file.name,
+      parsed_text: parsedText,
+      normalized_text: normalizedText,
+    });
+  } catch (e) {
+    await supabase.storage.from("documents").remove([storagePath]);
+    console.error("[createDocument error]", e);
+    return { error: "문서 저장에 실패했습니다. 다시 시도해주세요." };
+  }
 
   if (!options?.skipRevalidate) revalidatePath("/resume");
   return { documentId: doc.id, storagePath };
