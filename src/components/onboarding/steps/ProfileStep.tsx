@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useTransition, KeyboardEvent } from "react";
-import { toast } from "sonner";
+import { useState, KeyboardEvent } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,17 +11,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { saveProfileAction } from "@/app/(main)/profile/actions";
 import { JOB_CATEGORIES, YEARS_OPTIONS } from "@/lib/constants/profile";
 import type { UserProfile } from "@/lib/supabase/queries/profiles";
+import type { SaveProfileInput } from "@/app/(main)/profile/actions";
 
 interface ProfileStepProps {
   profile: UserProfile | null;
-  onNext: () => void;
+  onNext: (data: SaveProfileInput) => void;
 }
 
 export default function ProfileStep({ profile, onNext }: ProfileStepProps) {
-  const [isPending, startTransition] = useTransition();
 
   const [jobCategory, setJobCategory] = useState<string>(
     profile?.job_category ?? ""
@@ -80,21 +78,12 @@ export default function ProfileStep({ profile, onNext }: ProfileStepProps) {
   }
 
   function handleNext() {
-    startTransition(async () => {
-      const result = await saveProfileAction({
-        job_category: jobCategory || null,
-        years_of_experience:
-          yearsOfExperience !== "" ? Number(yearsOfExperience) : null,
-        tech_stack: techStack,
-        skills,
-      });
-
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-
-      onNext();
+    onNext({
+      job_category: jobCategory || null,
+      years_of_experience:
+        yearsOfExperience !== "" ? Number(yearsOfExperience) : null,
+      tech_stack: techStack,
+      skills,
     });
   }
 
@@ -215,9 +204,9 @@ export default function ProfileStep({ profile, onNext }: ProfileStepProps) {
       <div className="flex justify-end pt-2">
         <Button
           onClick={handleNext}
-          disabled={isPending || !jobCategory || yearsOfExperience === ""}
+          disabled={!jobCategory || yearsOfExperience === ""}
         >
-          {isPending ? "저장 중..." : "다음 →"}
+          다음 →
         </Button>
       </div>
     </div>

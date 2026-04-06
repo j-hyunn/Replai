@@ -5,6 +5,7 @@ import ProfileStep from "@/components/onboarding/steps/ProfileStep";
 import DocumentStep from "@/components/onboarding/steps/DocumentStep";
 import type { UserProfile } from "@/lib/supabase/queries/profiles";
 import type { UserDocument } from "@/lib/supabase/queries/documents";
+import type { SaveProfileInput } from "@/app/(main)/profile/actions";
 
 const STEPS = [
   { label: "내 소개", description: "직군, 연차, 기술 스택을 알려주세요." },
@@ -18,6 +19,7 @@ interface OnboardingWizardProps {
 
 export default function OnboardingWizard({ profile, documents }: OnboardingWizardProps) {
   const [step, setStep] = useState<0 | 1>(0);
+  const [pendingProfile, setPendingProfile] = useState<SaveProfileInput | null>(null);
 
   return (
     <div className="space-y-8">
@@ -63,10 +65,17 @@ export default function OnboardingWizard({ profile, documents }: OnboardingWizar
 
       {/* Step content */}
       {step === 0 && (
-        <ProfileStep profile={profile} onNext={() => setStep(1)} />
+        <ProfileStep
+          profile={profile}
+          onNext={(data) => { setPendingProfile(data); setStep(1); }}
+        />
       )}
       {step === 1 && (
-        <DocumentStep documents={documents} onBack={() => setStep(0)} />
+        <DocumentStep
+          documents={documents}
+          pendingProfile={pendingProfile}
+          onBack={() => setStep(0)}
+        />
       )}
     </div>
   );

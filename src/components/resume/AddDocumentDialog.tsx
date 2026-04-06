@@ -18,6 +18,7 @@ import { createClient } from "@/lib/supabase/client";
 interface AddDocumentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSuccess?: () => void;
 }
 
 type UploadStep =
@@ -31,7 +32,7 @@ const KIND_LABEL: Record<UploadStep["kind"], string> = {
   git: "GitHub",
 };
 
-export default function AddDocumentDialog({ open, onOpenChange }: AddDocumentDialogProps) {
+export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: AddDocumentDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [uploadSteps, setUploadSteps] = useState<UploadStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(-1);
@@ -181,7 +182,8 @@ export default function AddDocumentDialog({ open, onOpenChange }: AddDocumentDia
     setIsLoading(false);
 
     // 성공한 파일이 있으면 먼저 저장 확정 (handleClose가 삭제하지 못하도록 초기화 후 revalidate)
-    if (uploadedDocsRef.current.length > 0) {
+    const hasSuccessfulUploads = uploadedDocsRef.current.length > 0;
+    if (hasSuccessfulUploads) {
       uploadedDocsRef.current = [];
       await revalidateDocumentsAction();
     }
@@ -192,6 +194,7 @@ export default function AddDocumentDialog({ open, onOpenChange }: AddDocumentDia
       toast.success("문서가 추가되었습니다.");
     }
     handleClose();
+    if (hasSuccessfulUploads) onSuccess?.();
   }
 
   const hasContent =
