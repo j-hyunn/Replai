@@ -43,9 +43,10 @@ export async function POST(req: Request) {
   }
 
   const data = await geminiRes.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>;
   };
-  const transcript = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+  const parts = data.candidates?.[0]?.content?.parts ?? [];
+  const transcript = parts.find((p) => !p.thought && p.text)?.text?.trim() ?? "";
 
   return Response.json({ transcript });
 }
