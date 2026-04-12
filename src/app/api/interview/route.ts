@@ -38,7 +38,7 @@ function extractJson(raw: string): string {
 
 // One-shot agent: no session persistence needed (analysis + evaluation).
 async function runOneShot(instruction: string, userMessage: string, userId: string, apiKey: string, model: string): Promise<string> {
-  const agent = new LlmAgent({ name: "oneshot_agent", model: makeGemini(apiKey, model), instruction });
+  const agent = new LlmAgent({ name: "oneshot_agent", model: makeGemini(apiKey, model), instruction: () => instruction });
   const runner = new Runner({ agent, appName: APP_NAME, sessionService: new InMemorySessionService() });
 
   let result = "";
