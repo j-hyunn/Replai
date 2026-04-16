@@ -59,8 +59,8 @@ export default function LoginPage() {
         <Card>
           <CardHeader className="text-center">
             <div className="flex flex-col items-center justify-center gap-4 font-bold text-foreground text-2xl mb-1 text-primary">
-              <Image src="/logo.svg" alt="reHEARsal logo" width={60} height={60} />
-              reHEARsal
+              <Image src="/logo.svg" alt="Replai logo" width={60} height={60} />
+              Replai
             </div>
             <CardDescription>
               취업을 위한 AI 스페셜리스트 면접관과의 면접 경험

@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "개인정보 처리방침 | 리허설",
+  title: "개인정보 처리방침 | 리플레이",
 };
 
 export default function PrivacyPage() {
@@ -15,7 +15,7 @@ export default function PrivacyPage() {
       <p className="mt-1 text-xs text-muted-foreground">최종 수정일: 2026년 3월 30일</p>
 
       <Section title="1. 수집하는 개인정보">
-        <p>리허설은 서비스 제공을 위해 아래 정보를 수집합니다.</p>
+        <p>리플레이는 서비스 제공을 위해 아래 정보를 수집합니다.</p>
         <ul>
           <li>Google 계정 정보: 이름, 이메일 주소, 프로필 사진</li>
           <li>사용자가 직접 입력하거나 업로드한 정보: 이력서, 포트폴리오, GitHub 링크, 직군·경력·기술 스택</li>
@@ -40,7 +40,7 @@ export default function PrivacyPage() {
       </Section>
 
       <Section title="4. 제3자 제공 및 위탁">
-        <p>리허설은 아래 제3자 서비스를 활용합니다.</p>
+        <p>리플레이는 아래 제3자 서비스를 활용합니다.</p>
         <ul>
           <li>
             <strong>Google (OAuth)</strong>: 로그인 인증 처리

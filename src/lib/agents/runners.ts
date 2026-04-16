@@ -1,5 +1,5 @@
 /**
- * ADK Runner singletons for the Rehearsal interview agents.
+ * ADK Runner singletons for the Replai interview agents.
  *
  * Module-level singletons persist within a single Node.js process (warm
  * Vercel instance). On cold start the InMemorySessionService is empty, so
@@ -18,7 +18,7 @@ import { env } from "@/lib/env";
 import { buildInterviewSystemPrompt } from "@/lib/prompts/interview";
 import type { AnalysisOutput, UserProfileContext } from "@/lib/prompts/analysis";
 
-const APP_NAME = "rehearsal";
+const APP_NAME = "replai";
 const MODEL = "gemini-2.5-flash";
 
 // Shared session service — holds ADK sessions in memory for this process.

@@ -20,7 +20,7 @@ export default async function ReportLayout({
     <div className="flex h-screen flex-col" style={{ background: "var(--sidebar)" }}>
       <header className="flex h-16 shrink-0 items-center gap-3 mx-4 mt-4 rounded-xl border bg-card px-5">
         <Link href="/interview" className="shrink-0">
-          <Image src="/logo.svg" alt="reHEARsal" width={28} height={28} />
+          <Image src="/logo.svg" alt="Replai" width={28} height={28} />
         </Link>
         <Separator orientation="vertical" className="h-4" />
         <AppBreadcrumb userName={userName} />

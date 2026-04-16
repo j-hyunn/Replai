@@ -23,7 +23,7 @@ export default function InterviewExitDialog() {
   return (
     <>
       <button onClick={() => setOpen(true)} className="shrink-0">
-        <Image src="/logo.svg" alt="reHEARsal" width={28} height={28} />
+        <Image src="/logo.svg" alt="Replai" width={28} height={28} />
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>

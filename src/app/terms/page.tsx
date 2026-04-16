@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "이용약관 | 리허설",
+  title: "이용약관 | 리플레이",
 };
 
 export default function TermsPage() {
@@ -16,7 +16,7 @@ export default function TermsPage() {
 
       <Section title="1. 서비스 소개">
         <p>
-          리허설(이하 "서비스")은 AI를 활용한 IT 직무 모의면접 서비스입니다.
+          Replai(이하 "서비스")은 AI를 활용한 IT 직무 모의면접 서비스입니다.
           이용자가 업로드한 이력서와 채용공고를 분석해 맞춤형 면접 질문을 생성하고,
           실시간 대화형 면접 및 피드백 리포트를 제공합니다.
         </p>

@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 
 export const metadata = {
-  title: "reHEARsal — AI 모의면접 서비스",
+  title: "Replai — AI 모의면접 서비스",
   description:
     "AI 면접관과 언제든지 면접 연습. IT 직군 이직 준비를 위한 AI 스페셜리스트 모의면접 서비스입니다.",
 };
@@ -76,7 +76,7 @@ const features = [
     icon: BrainCircuit,
     title: "꼬리질문 최대 4 depth",
     description:
-      "면접관은 답변이 불명확하면 파고듭니다. reHEARsal도 동일하게 최대 4단계 꼬리질문으로 실전 감각을 키웁니다.",
+      "면접관은 답변이 불명확하면 파고듭니다. Replai도 동일하게 최대 4단계 꼬리질문으로 실전 감각을 키웁니다.",
   },
   {
     icon: Zap,
@@ -110,8 +110,8 @@ export default function AboutPage() {
       <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/80 backdrop-blur-sm">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-2 font-bold text-primary">
-            <Image src="/logo.svg" alt="reHEARsal" width={28} height={28} />
-            reHEARsal
+            <Image src="/logo.svg" alt="Replai" width={28} height={28} />
+            Replai
           </Link>
           <Button asChild size="sm">
             <Link href="/login">시작하기</Link>
@@ -224,7 +224,7 @@ export default function AboutPage() {
       <section className="bg-muted/40 px-6 py-20">
         <div className="mx-auto max-w-5xl">
           <div className="mb-12 text-center">
-            <h2 className="mb-3 text-2xl font-bold md:text-3xl">왜 reHEARsal인가요?</h2>
+            <h2 className="mb-3 text-2xl font-bold md:text-3xl">왜 Replai인가요?</h2>
             <p className="text-muted-foreground">
               단순한 예상 질문 모음이 아닌, 진짜 면접에 가까운 경험을 제공합니다.
             </p>
@@ -298,8 +298,8 @@ export default function AboutPage() {
       <footer className="border-t border-border px-6 py-10">
         <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 sm:flex-row sm:justify-between">
           <Link href="/" className="flex items-center gap-2 font-bold text-primary">
-            <Image src="/logo.svg" alt="reHEARsal" width={22} height={22} />
-            reHEARsal
+            <Image src="/logo.svg" alt="Replai" width={22} height={22} />
+            Replai
           </Link>
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <a href="mailto:lab.jehyun@gmail.com" className="hover:text-foreground transition-colors">

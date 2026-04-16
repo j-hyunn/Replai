@@ -2,7 +2,7 @@ import PreferencesTabs from "@/components/preferences/PreferencesTabs";
 import { getApiSettingsAction } from "@/app/(main)/settings/actions";
 
 export const metadata = {
-  title: "환경설정 | 리허설",
+  title: "환경설정 | 리플레이",
 };
 
 export default async function PreferencesPage() {

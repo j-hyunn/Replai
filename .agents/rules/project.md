@@ -3,14 +3,14 @@ trigger: always_on
 ---
 
 # Description
-Defines the core service information, user flow, MVP scope, and tech stack for Rehearsal.
+Defines the core service information, user flow, MVP scope, and tech stack for Replai.
 Read before starting any task.
 
 # Content
 
 ## Service Info
 
-**Name**: Rehearsal
+**Name**: Replai
 **Core Value**: AI mock interviewer that knows your JD + resume — available anytime, anywhere
 **Target User**: IT career changers (developers, PMs, designers, AI engineers, infra engineers)
 **Trigger**: After passing document screening, before the interview

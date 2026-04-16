@@ -58,7 +58,7 @@ const evaluationAgent = new LlmAgent({
 })
 
 export const orchestrator = new SequentialAgent({
-  name: 'rehearsal_orchestrator',
+  name: 'replai_orchestrator',
   subAgents: [analysisAgent, interviewAgent, evaluationAgent]
 })
 ```

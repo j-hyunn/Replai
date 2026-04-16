@@ -48,7 +48,7 @@ GOOGLE_API_KEY=<your-google-ai-api-key>
 4. Navigate to **APIs & Services → Credentials**
 5. Click **Create Credentials → OAuth client ID**
    - Application type: **Web application**
-   - Name: `Rehearsal`
+   - Name: `Replai`
    - Under **Authorized redirect URIs**, add:
      ```
      https://<your-project-ref>.supabase.co/auth/v1/callback

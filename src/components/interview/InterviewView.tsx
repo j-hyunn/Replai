@@ -785,8 +785,8 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
             <div key={i}>
               {msg.role === "interviewer" && (
                 <div className="flex items-center gap-2 mb-1.5">
-                  <Image src="/logo.svg" alt="reHEARsal" width={24} height={24} />
-                  <span className="text-xs font-medium">리허설</span>
+                  <Image src="/logo.svg" alt="Replai" width={24} height={24} />
+                  <span className="text-xs font-medium">리플레이</span>
                 </div>
               )}
               <div

@@ -31,7 +31,7 @@ export default function InterviewMockup() {
         </div>
         <div className="mx-auto flex h-6 w-64 items-center justify-center rounded-md bg-background px-3">
           <span className="truncate text-xs text-muted-foreground">
-            rehearsal.vercel.app/interview/...
+            replai.vercel.app/interview/...
           </span>
         </div>
       </div>
@@ -44,7 +44,7 @@ export default function InterviewMockup() {
         {/* Header card — matches: mx-4 mt-4 rounded-xl border bg-card px-5 h-16 */}
         <div className="flex h-12 items-center gap-3 rounded-xl border bg-card px-4">
           {/* Logo button (InterviewExitDialog) */}
-          <Image src="/logo.svg" alt="reHEARsal" width={22} height={22} className="shrink-0" />
+          <Image src="/logo.svg" alt="Replai" width={22} height={22} className="shrink-0" />
 
           {/* Vertical separator */}
           <div className="h-4 w-px bg-border shrink-0" />
@@ -156,8 +156,8 @@ export default function InterviewMockup() {
                 <div key={i}>
                   {msg.role === "interviewer" && (
                     <div className="mb-1 flex items-center gap-1.5">
-                      <Image src="/logo.svg" alt="reHEARsal" width={16} height={16} />
-                      <span className="text-[10px] font-medium">리허설</span>
+                      <Image src="/logo.svg" alt="Replai" width={16} height={16} />
+                      <span className="text-[10px] font-medium">리플레이</span>
                     </div>
                   )}
                   <div
@@ -175,8 +175,8 @@ export default function InterviewMockup() {
               {/* Typing indicator */}
               <div>
                 <div className="mb-1 flex items-center gap-1.5">
-                  <Image src="/logo.svg" alt="reHEARsal" width={16} height={16} />
-                  <span className="text-[10px] font-medium">리허설</span>
+                  <Image src="/logo.svg" alt="Replai" width={16} height={16} />
+                  <span className="text-[10px] font-medium">리플레이</span>
                 </div>
                 <div className="inline-flex items-center gap-1 rounded-xl bg-muted px-3 py-2.5">
                   <style>{`

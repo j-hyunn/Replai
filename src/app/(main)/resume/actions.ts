@@ -182,7 +182,7 @@ export async function saveGitLinkAction(
       const [, owner, repo] = match;
       const res = await fetch(
         `https://api.github.com/repos/${owner}/${repo}/readme`,
-        { headers: { Accept: "application/vnd.github.v3+json", "User-Agent": "reHEARsal" } }
+        { headers: { Accept: "application/vnd.github.v3+json", "User-Agent": "Replai" } }
       );
       if (res.ok) {
         const data = await res.json() as { content?: string };
