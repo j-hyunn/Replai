@@ -107,7 +107,7 @@ export default function InterviewMockup() {
                   className="lp-blob-glow absolute inset-0 rounded-full blur-3xl scale-125"
                   style={{
                     background:
-                      "radial-gradient(circle, color-mix(in srgb, rgba(79,83,245,1) 15%, transparent) 0%, transparent 70%)",
+                      "radial-gradient(circle, color-mix(in srgb, var(--primary) 15%, transparent) 0%, transparent 70%)",
                   }}
                 />
                 <div
@@ -116,9 +116,9 @@ export default function InterviewMockup() {
                     height: 120,
                     borderRadius: "50%",
                     background:
-                      "radial-gradient(circle at 42% 36%, color-mix(in srgb,rgba(79,83,245,1) 25%,white) 0%, color-mix(in srgb,rgba(79,83,245,1) 55%,white) 40%, rgba(79,83,245,1) 70%, rgba(79,83,245,1) 100%)",
+                      "radial-gradient(circle at 42% 36%, color-mix(in srgb,var(--primary) 25%,white) 0%, color-mix(in srgb,var(--primary) 55%,white) 40%, var(--primary) 70%, var(--primary) 100%)",
                     boxShadow:
-                      "0 0 40px 14px color-mix(in srgb,rgba(79,83,245,1) 30%,transparent), 0 0 80px 30px color-mix(in srgb,rgba(79,83,245,1) 15%,transparent), inset 0 0 30px 8px rgba(255,255,255,.2)",
+                      "0 0 40px 14px color-mix(in srgb,var(--primary) 30%,transparent), 0 0 80px 30px color-mix(in srgb,var(--primary) 15%,transparent), inset 0 0 30px 8px rgba(255,255,255,.2)",
                   }}
                 />
               </div>

@@ -156,7 +156,7 @@ export default function AboutPage() {
               className="pointer-events-none absolute -inset-6 -z-10 rounded-3xl opacity-40 blur-3xl"
               style={{
                 background:
-                  "radial-gradient(ellipse at 50% 60%, color-mix(in srgb, rgba(79,83,245,1) 30%, transparent), transparent 70%)",
+                  "radial-gradient(ellipse at 50% 60%, color-mix(in srgb, var(--primary) 30%, transparent), transparent 70%)",
               }}
             />
             <InterviewMockup />
