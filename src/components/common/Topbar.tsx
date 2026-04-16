@@ -47,7 +47,7 @@ export default function Topbar({ userName }: TopbarProps) {
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="mr-2 h-4" />
       <Link href="/resume" className="shrink-0">
-        <Image src="/logo.svg" alt="reHEARsal" width={28} height={28} />
+        <Image src="/logo.svg" alt="Replai" width={28} height={28} />
       </Link>
       <AppBreadcrumb userName={userName} />
     </header>

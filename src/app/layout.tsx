@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "리허설",
+  title: "리플레이",
   description: "JD와 이력서를 아는 AI 면접관과 모의면접",
   icons: {
     icon: "/favicon.svg",
