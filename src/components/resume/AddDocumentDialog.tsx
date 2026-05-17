@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState } from "react";
 import { CheckIcon, Loader2Icon, UploadIcon, XIcon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -26,41 +26,33 @@ type UploadStep =
   | { kind: "portfolio"; file: File; label: string }
   | { kind: "git"; url: string; label: string };
 
+type StepPhase = "queued" | "uploading" | "processing" | "done" | "error";
+
 const KIND_LABEL: Record<UploadStep["kind"], string> = {
   resume: "이력서",
   portfolio: "포트폴리오",
   git: "GitHub",
 };
 
+const PHASE_LABEL: Record<StepPhase, string> = {
+  queued: "대기 중",
+  uploading: "업로드 중",
+  processing: "분석 중",
+  done: "완료",
+  error: "실패",
+};
+
 export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: AddDocumentDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [uploadSteps, setUploadSteps] = useState<UploadStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(-1);
-  const [stepProgress, setStepProgress] = useState<Record<number, number>>({});
-  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [stepPhases, setStepPhases] = useState<Record<number, StepPhase>>({});
   const isCancelledRef = useRef(false);
   const uploadedDocsRef = useRef<Array<{ id: string; storagePath: string }>>([]);
 
-  const startProgressFor = useCallback((index: number) => {
-    if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-    setStepProgress((prev) => ({ ...prev, [index]: 0 }));
-    progressIntervalRef.current = setInterval(() => {
-      setStepProgress((prev) => {
-        const current = prev[index] ?? 0;
-        if (current >= 95) return prev;
-        const increment = current < 50 ? 1.5 : current < 80 ? 0.7 : 0.2;
-        return { ...prev, [index]: Math.min(95, current + increment) };
-      });
-    }, 400);
-  }, []);
-
-  const completeProgressFor = useCallback((index: number) => {
-    if (progressIntervalRef.current) {
-      clearInterval(progressIntervalRef.current);
-      progressIntervalRef.current = null;
-    }
-    setStepProgress((prev) => ({ ...prev, [index]: 100 }));
-  }, []);
+  function setPhase(index: number, phase: StepPhase) {
+    setStepPhases((prev) => ({ ...prev, [index]: phase }));
+  }
 
   const [resumeFiles, setResumeFiles] = useState<File[]>([]);
   const resumeInputRef = useRef<HTMLInputElement>(null);
@@ -84,7 +76,6 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
 
   function handleClose() {
     isCancelledRef.current = true;
-    if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
     // 이미 완료된 업로드 삭제 (이번 iteration 완료분은 루프에서 처리)
     for (const doc of uploadedDocsRef.current) {
       void deleteDocumentAction(doc.id, doc.storagePath);
@@ -96,7 +87,7 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
     setGitUrls([""]);
     setUploadSteps([]);
     setCurrentStepIndex(-1);
-    setStepProgress({});
+    setStepPhases({});
     onOpenChange(false);
   }
 
@@ -121,12 +112,12 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
       if (isCancelledRef.current) break;
 
       setCurrentStepIndex(i);
-      startProgressFor(i);
       const step = steps[i];
 
       let result;
       if (step.kind === "resume" || step.kind === "portfolio") {
         // 1단계: Presigned URL 발급
+        setPhase(i, "uploading");
         const urlResult = await getUploadUrlAction(
           step.kind,
           step.file.name,
@@ -145,7 +136,8 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
           if (uploadError) {
             result = { error: `파일 업로드에 실패했습니다: ${uploadError.message}. 다시 시도해주세요.` };
           } else {
-            // 3단계: 파싱 + DB 저장
+            // 3단계: 파싱 + DB 저장 (normalize는 백그라운드)
+            setPhase(i, "processing");
             result = await processUploadedDocumentAction(
               urlResult.documentId!,
               urlResult.storagePath!,
@@ -156,6 +148,7 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
           }
         }
       } else {
+        setPhase(i, "processing");
         result = await saveGitLinkAction(step.url, { skipRevalidate: true });
       }
 
@@ -169,11 +162,13 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
 
       if (result.error) {
         errors.push(`${step.label}: ${result.error}`);
+        setPhase(i, "error");
       } else if (result.documentId) {
         uploadedDocsRef.current.push({ id: result.documentId, storagePath: result.storagePath ?? "" });
+        setPhase(i, "done");
+      } else {
+        setPhase(i, "done");
       }
-
-      completeProgressFor(i);
     }
 
     if (isCancelledRef.current) return;
@@ -225,7 +220,7 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
 
             <div className="text-center space-y-1">
               <p className="text-xs font-medium text-muted-foreground tracking-widest uppercase">
-                분석 중
+                업로드 진행 중
               </p>
               <p className="text-lg font-bold">
                 {currentStepIndex < uploadSteps.length
@@ -236,15 +231,19 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
 
             <div className="w-full space-y-2">
               {uploadSteps.map((step, i) => {
-                const isDone = i < currentStepIndex;
-                const isCurrent = i === currentStepIndex;
+                const phase = stepPhases[i] ?? "queued";
+                const isDone = phase === "done";
+                const isError = phase === "error";
+                const isActive = phase === "uploading" || phase === "processing";
                 return (
                   <div
                     key={i}
                     className={`flex items-center gap-2.5 rounded-full px-3.5 py-2 text-xs font-medium transition-all ${
-                      isDone
+                      isError
+                        ? "bg-destructive/15 text-destructive"
+                        : isDone
                         ? "bg-primary/15 text-primary"
-                        : isCurrent
+                        : isActive
                         ? "bg-primary text-primary-foreground"
                         : "bg-muted text-muted-foreground"
                     }`}
@@ -252,27 +251,31 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
                     {isDone && (
                       <CheckIcon className="size-3 shrink-0" />
                     )}
-                    {isCurrent && (
+                    {isActive && (
                       <Loader2Icon className="size-3 shrink-0 animate-spin" />
                     )}
-                    {!isDone && !isCurrent && (
+                    {!isDone && !isActive && !isError && (
                       <span className="size-3 shrink-0" />
+                    )}
+                    {isError && (
+                      <XIcon className="size-3 shrink-0" />
                     )}
                     <span className="text-[11px] opacity-60 shrink-0">
                       {KIND_LABEL[step.kind]}
                     </span>
                     <span className="flex-1 truncate">{step.label}</span>
-                    <span className="shrink-0 tabular-nums opacity-50">
-                      {Math.round(stepProgress[i] ?? 0)}%
+                    <span className="shrink-0 text-[10px] opacity-60">
+                      {PHASE_LABEL[phase]}
                     </span>
                   </div>
                 );
               })}
             </div>
 
-            <p className="text-xs text-muted-foreground text-center">
-              문서 분석은 업로드 시 1회만 진행됩니다. 잠시만 기다려주세요.
-              <br />창을 닫으면 업로드가 취소됩니다.
+            <p className="text-xs text-muted-foreground text-center leading-relaxed">
+              AI 정밀 분석은 백그라운드에서 진행됩니다.
+              <br />
+              인터뷰 시작 시점에 완료 상태로 진입합니다.
             </p>
           </div>
         )}

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { createInterviewSessionAction } from "@/app/(main)/interview/actions";
+import { ensureNormalizedAction } from "@/app/(main)/resume/actions";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,8 @@ function toOptions(docs: UserDocument[]): ComboboxOption[] {
   return docs.map((d) => ({ value: d.id, label: d.file_name ?? d.id }));
 }
 
+type StartStage = "idle" | "preparing" | "creating";
+
 export default function NewInterviewDialog({
   open,
   onOpenChange,
@@ -43,6 +46,7 @@ export default function NewInterviewDialog({
 }: NewInterviewDialogProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [stage, setStage] = useState<StartStage>("idle");
 
   // Title
   const [title, setTitle] = useState("");
@@ -94,22 +98,48 @@ export default function NewInterviewDialog({
     if (!canStart) return;
 
     const jdContent = jdText.trim();
+    const selectedIds = [...resumeIds, ...portfolioIds, ...githubIds];
 
     startTransition(async () => {
+      // 가드: 선택된 모든 문서가 normalize 'done' 상태여야 인터뷰 시작 가능.
+      // 미완료(pending/failed) 문서는 서버에서 동기 normalize 후 결과 반환.
+      setStage("preparing");
+      const ensureResult = await ensureNormalizedAction(selectedIds);
+
+      if (ensureResult.error) {
+        toast.error(ensureResult.error);
+        setStage("idle");
+        return;
+      }
+
+      if (ensureResult.failed.length > 0) {
+        const failedDocs = documents.filter((d) => ensureResult.failed.includes(d.id));
+        const names = failedDocs.map((d) => d.file_name ?? d.id).join(", ");
+        toast.error(
+          `다음 문서의 AI 분석에 실패했습니다: ${names}. 문서 관리에서 재시도하거나 다른 문서를 선택해주세요.`
+        );
+        setStage("idle");
+        router.refresh();
+        return;
+      }
+
+      setStage("creating");
       const result = await createInterviewSessionAction({
         title: title.trim(),
         jdText: jdContent,
         persona: persona as "explorer" | "pressure" | "technical",
         durationMinutes: Number(duration),
-        resumeIds: [...resumeIds, ...portfolioIds, ...githubIds],
+        resumeIds: selectedIds,
       });
 
       if ("error" in result) {
         toast.error(result.error);
+        setStage("idle");
         return;
       }
 
       handleOpenChange(false);
+      setStage("idle");
       router.push(`/interview/${result.sessionId}`);
     });
   }
@@ -124,7 +154,16 @@ export default function NewInterviewDialog({
         {isPending && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-lg bg-background/90 backdrop-blur-sm">
             <Loader2Icon className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-sm font-medium">면접을 생성하고 있어요...</p>
+            <p className="text-sm font-medium">
+              {stage === "preparing"
+                ? "AI 분석을 마무리하고 있어요..."
+                : "면접을 생성하고 있어요..."}
+            </p>
+            {stage === "preparing" && (
+              <p className="text-xs text-muted-foreground">
+                최대 1분 정도 걸릴 수 있어요. 잠시만 기다려주세요.
+              </p>
+            )}
           </div>
         )}
 
@@ -297,7 +336,11 @@ export default function NewInterviewDialog({
             취소
           </Button>
           <Button onClick={handleStart} disabled={!canStart || isPending}>
-            {isPending ? "생성 중..." : "면접 시작하기"}
+            {isPending
+              ? stage === "preparing"
+                ? "분석 마무리 중..."
+                : "생성 중..."
+              : "면접 시작하기"}
           </Button>
         </DialogFooter>
       </DialogContent>

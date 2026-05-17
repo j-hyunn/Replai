@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import FileCard from "@/components/resume/FileCard";
 import type { UserDocument, DocumentType } from "@/lib/supabase/queries/documents";
 
@@ -10,7 +12,20 @@ interface DocumentSectionProps {
   documents: UserDocument[];
 }
 
+const POLL_INTERVAL_MS = 5_000;
+
 export default function DocumentSection({ title, description, documents }: DocumentSectionProps) {
+  const router = useRouter();
+  const hasPending = documents.some((d) => d.normalize_status === "pending");
+
+  useEffect(() => {
+    if (!hasPending) return;
+    const id = setInterval(() => {
+      router.refresh();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [hasPending, router]);
+
   return (
     <section className="space-y-3">
       <div>
