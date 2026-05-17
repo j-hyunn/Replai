@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 
 export type DocumentType = 'resume' | 'portfolio' | 'git'
 
+export type NormalizeStatus = 'pending' | 'done' | 'failed'
+
 export interface UserDocument {
   id: string
   user_id: string
@@ -10,6 +12,7 @@ export interface UserDocument {
   file_name: string | null
   parsed_text: string | null
   normalized_text: string | null
+  normalize_status: NormalizeStatus
   created_at: string
   updated_at: string
 }
@@ -21,6 +24,7 @@ export interface CreateDocumentInput {
   file_name: string
   parsed_text: string
   normalized_text?: string
+  normalize_status?: NormalizeStatus
 }
 
 /**
@@ -144,11 +148,68 @@ export async function updateNormalizedText(
   const supabase = await createClient()
   const { error } = await supabase
     .from('user_documents')
-    .update({ normalized_text: normalizedText, updated_at: new Date().toISOString() })
+    .update({
+      normalized_text: normalizedText,
+      normalize_status: 'done',
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', documentId)
   if (error) {
     throw new Error(`Failed to save normalized text: ${error.message}`)
   }
+}
+
+/**
+ * Marks normalize as failed without touching normalized_text.
+ * Callers may surface a retry CTA in the UI.
+ */
+export async function markNormalizeFailed(documentId: string): Promise<void> {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('user_documents')
+    .update({
+      normalize_status: 'failed',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', documentId)
+  if (error) {
+    throw new Error(`Failed to update normalize status: ${error.message}`)
+  }
+}
+
+/**
+ * Resets a document back to 'pending' before retrying normalize.
+ */
+export async function markNormalizePending(documentId: string): Promise<void> {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('user_documents')
+    .update({
+      normalize_status: 'pending',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', documentId)
+  if (error) {
+    throw new Error(`Failed to update normalize status: ${error.message}`)
+  }
+}
+
+/**
+ * Lightweight status fetch for polling. Returns only id/status pairs.
+ */
+export async function getNormalizeStatuses(
+  documentIds: string[]
+): Promise<Array<{ id: string; normalize_status: NormalizeStatus }>> {
+  if (documentIds.length === 0) return []
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('user_documents')
+    .select('id, normalize_status')
+    .in('id', documentIds)
+  if (error) {
+    throw new Error(`Failed to load normalize statuses: ${error.message}`)
+  }
+  return data
 }
 
 /**

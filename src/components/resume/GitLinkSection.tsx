@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Link2Icon, Loader2Icon, PencilIcon, CheckIcon, XIcon } from "lucide-react";
+import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Link2Icon, Loader2Icon, PencilIcon, CheckIcon, XIcon, AlertCircleIcon, RotateCwIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { saveGitLinkAction, deleteDocumentAction } from "@/app/(main)/resume/actions";
+import { saveGitLinkAction, deleteDocumentAction, retryNormalizeAction } from "@/app/(main)/resume/actions";
 import type { UserDocument } from "@/lib/supabase/queries/documents";
+
+const POLL_INTERVAL_MS = 5_000;
 
 interface GitLinkSectionProps {
   documents: UserDocument[];
@@ -82,6 +86,21 @@ function GitLinkItem({ document }: { document: UserDocument }) {
     );
   }
 
+  function handleRetry() {
+    startTransition(async () => {
+      const result = await retryNormalizeAction(document.id);
+      if (result.error) {
+        toast.error(result.error);
+      } else if (result.status === "done") {
+        toast.success("AI 분석이 완료되었습니다.");
+      } else {
+        toast.error("AI 분석에 다시 실패했습니다. 잠시 후 다시 시도해주세요.");
+      }
+    });
+  }
+
+  const status = document.normalize_status;
+
   return (
     <div className="flex items-center gap-2">
       <Link2Icon className="size-4 shrink-0 text-muted-foreground" />
@@ -93,7 +112,32 @@ function GitLinkItem({ document }: { document: UserDocument }) {
       >
         {document.file_url}
       </a>
+      {status === "pending" && (
+        <Badge variant="secondary" className="shrink-0 gap-1 text-[10px]">
+          <Loader2Icon className="size-2.5 animate-spin" />
+          AI 분석 중
+        </Badge>
+      )}
+      {status === "failed" && (
+        <Badge variant="destructive" className="shrink-0 gap-1 text-[10px]">
+          <AlertCircleIcon className="size-2.5" />
+          분석 실패
+        </Badge>
+      )}
       <div className="flex shrink-0 gap-1">
+        {status === "failed" && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRetry}
+            disabled={isPending}
+            className="size-7 text-muted-foreground"
+            title="AI 분석 다시 시도"
+          >
+            <RotateCwIcon className={`size-3.5 ${isPending ? "animate-spin" : ""}`} />
+            <span className="sr-only">재시도</span>
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -119,6 +163,17 @@ function GitLinkItem({ document }: { document: UserDocument }) {
 }
 
 export default function GitLinkSection({ documents }: GitLinkSectionProps) {
+  const router = useRouter();
+  const hasPending = documents.some((d) => d.normalize_status === "pending");
+
+  useEffect(() => {
+    if (!hasPending) return;
+    const id = setInterval(() => {
+      router.refresh();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [hasPending, router]);
+
   return (
     <section className="space-y-3">
       <div>
