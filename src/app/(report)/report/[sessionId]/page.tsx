@@ -42,5 +42,5 @@ export default async function ReportPage({ params }: ReportPageProps) {
 
   const data: ReportJson = report.report_json;
 
-  return <ReportView data={data} createdAt={report.created_at} />;
+  return <ReportView data={data} createdAt={report.created_at} sessionId={sessionId} />;
 }

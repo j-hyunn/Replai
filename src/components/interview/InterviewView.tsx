@@ -284,9 +284,11 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
     return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
   }
 
-  // displayText: shown in chat bubble
-  // apiText: sent to API (and saved to DB) — defaults to displayText
-  async function sendMessage(displayText: string, apiText?: string) {
+  // displayText: shown in chat bubble (and saved to DB as-is)
+  // kind: 'answer' for normal user input, 'hint_shown' when the user
+  //       just opened the model answer hint. The server uses `kind` to
+  //       branch evaluation behavior (no inline markers anymore).
+  async function sendMessage(displayText: string, kind: "answer" | "hint_shown" = "answer") {
     setIsSending(true);
     setMessages((prev) => [
       ...prev,
@@ -297,7 +299,7 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
       const res = await fetch("/api/interview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "respond", sessionId: session.id, userMessage: apiText ?? displayText }),
+        body: JSON.stringify({ type: "respond", sessionId: session.id, userMessage: displayText, kind }),
       });
       if (!res.ok) throw new Error("응답 실패");
       const { message, audioBase64 } = await res.json() as { message: string; audioBase64: string | null };
@@ -332,8 +334,10 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
       });
       if (!res.ok) throw new Error("hint 생성 실패");
       const { hint } = await res.json() as { hint: string };
-      // Display clean hint in chat; store with marker so evaluator can apply penalty
-      await sendMessage(hint, `[모범 답안] ${hint}`);
+      // Display the hint in chat AND save it as the user's "answer" for
+      // this turn, tagged with kind: 'hint_shown' so the evaluation
+      // pipeline applies the score cap server-side.
+      await sendMessage(hint, "hint_shown");
     } catch {
       setMessages((prev) => [
         ...prev,

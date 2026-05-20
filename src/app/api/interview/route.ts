@@ -13,17 +13,22 @@ import { getUser } from "@/lib/supabase/auth.server";
 import { getSession, updateSession } from "@/lib/supabase/queries/sessions";
 import { getDocumentsByIds } from "@/lib/supabase/queries/documents";
 import { getSessionMessages, createMessage } from "@/lib/supabase/queries/messages";
-import { env } from "@/lib/env";
 import { getUserAiConfig } from "@/lib/ai-config";
 import { generateTtsBase64 } from "@/lib/tts";
 import { buildAnalysisPrompt, type AnalysisOutput, type UserProfileContext } from "@/lib/prompts/analysis";
 import { getUserProfile } from "@/lib/supabase/queries/profiles";
 import { getPersonaSettings } from "@/lib/supabase/queries/personaSettings";
 import { buildFirstQuestionPrompt, buildRespondPrompt, buildSkipPrompt, buildHintPrompt } from "@/lib/prompts/interview";
-import { buildEvaluationPrompt } from "@/lib/prompts/evaluation";
+import type { QaGroup as EvaluationQaGroup } from "@/lib/prompts/evaluation";
 import { sessionService, interviewRunner, APP_NAME } from "@/lib/agents/runners";
-
-const MODEL = "gemini-2.5-flash";
+import { evaluateAllAnswers, evaluateAnswer, evaluateSummary } from "@/lib/evaluation/run";
+import {
+  buildSkippedAnswer,
+  computeTotalScore,
+  countByStatus,
+  type AnswerFinal,
+} from "@/lib/evaluation/postprocess";
+import type { MessageKind } from "@/lib/supabase/queries/messages";
 
 function makeGemini(apiKey: string, model: string) {
   return new Gemini({ model, apiKey });
@@ -119,7 +124,13 @@ export async function POST(req: Request) {
 
   const { apiKey, model } = await getUserAiConfig(user.id);
 
-  const body = await req.json() as { type: string; sessionId: string; userMessage?: string };
+  const body = await req.json() as {
+    type: string;
+    sessionId: string;
+    userMessage?: string;
+    kind?: "answer" | "hint_shown";
+    questionId?: string;
+  };
   const { type, sessionId, userMessage } = body;
 
   const session = await getSession(sessionId);
@@ -237,6 +248,7 @@ export async function POST(req: Request) {
         content: firstMessage,
         question_id: firstQuestion?.id,
         depth: 0,
+        kind: "interviewer",
       }),
       generateTtsBase64(firstMessage),
     ]);
@@ -253,11 +265,27 @@ export async function POST(req: Request) {
       return Response.json({ error: "면접 분석 데이터가 없습니다." }, { status: 400 });
     }
 
-    // Save user message first (preserving any marker like [모범 답안] for evaluation).
-    await createMessage({ session_id: sessionId, role: "user", content: userMessage });
+    // Save user message with the kind declared by the client. Default is
+    // 'answer' for backwards compatibility, but the client should send
+    // 'hint_shown' after the user opened the hint so the evaluation
+    // pipeline knows to apply the score cap.
+    const userKind: MessageKind = body.kind === "hint_shown" ? "hint_shown" : "answer";
+    await createMessage({
+      session_id: sessionId,
+      role: "user",
+      content: userMessage,
+      kind: userKind,
+    });
 
-    // Strip markers before sending to the interview agent so it responds naturally.
-    const agentUserMessage = userMessage.replace(/^\[모범 답안\] /, "");
+    // For hint_shown turns we must NOT feed the model answer text back into
+    // the interview agent as if the user had spoken it — the agent would
+    // generate follow-ups assuming the user delivered that content. Send a
+    // short neutral stand-in instead. The full hint text is still preserved
+    // in DB (content) for the evaluator and the report UI.
+    const agentUserMessage =
+      userKind === "hint_shown"
+        ? "사용자가 모범 답안을 참조했습니다. 다음 질문으로 자연스럽게 넘어가주세요."
+        : userMessage;
 
     // Ensure ADK session exists (handles cold-start reconstruction).
     const totalSeconds = (session.duration_minutes ?? 30) * 60;
@@ -298,7 +326,7 @@ export async function POST(req: Request) {
     } catch { /* use raw */ }
 
     const [, audioBase64] = await Promise.all([
-      createMessage({ session_id: sessionId, role: "interviewer", content: message, question_id: nextQuestionId }),
+      createMessage({ session_id: sessionId, role: "interviewer", content: message, question_id: nextQuestionId, kind: "interviewer" }),
       generateTtsBase64(message),
     ]);
 
@@ -343,7 +371,12 @@ export async function POST(req: Request) {
       return Response.json({ error: "면접 분석 데이터가 없습니다." }, { status: 400 });
     }
 
-    await createMessage({ session_id: sessionId, role: "user", content: "[질문 건너뛰기]" });
+    await createMessage({
+      session_id: sessionId,
+      role: "user",
+      content: "",
+      kind: "skipped",
+    });
 
     const totalSeconds = (session.duration_minutes ?? 30) * 60;
     await ensureAdkSession({
@@ -380,7 +413,7 @@ export async function POST(req: Request) {
     } catch { /* use raw */ }
 
     const [, audioBase64] = await Promise.all([
-      createMessage({ session_id: sessionId, role: "interviewer", content: message, question_id: nextQuestionId }),
+      createMessage({ session_id: sessionId, role: "interviewer", content: message, question_id: nextQuestionId, kind: "interviewer" }),
       generateTtsBase64(message),
     ]);
 
@@ -391,87 +424,242 @@ export async function POST(req: Request) {
   if (type === "evaluate") {
     const analysisJson = session.analysis_json as unknown as AnalysisOutput | null;
     const messages = await getSessionMessages(sessionId);
-    const safeAnalysis = analysisJson ?? { analysis: { jd_keywords: [], strengths: [], preferred_gaps: [] }, questions: [] };
+    const safeAnalysis = analysisJson ?? {
+      analysis: { jd_keywords: [], strengths: [], preferred_gaps: [] },
+      questions: [],
+    };
 
-    // Group messages by question_id in the route handler (no LLM call needed).
-    // question_id is propagated forward so follow-up turns inherit the parent question.
-    interface QaTurn { speaker: "interviewer" | "user"; content: string }
-    interface QaGroup {
-      question_id: string;
-      question: string;
-      intent: string;
-      good_answer_tips: string;
-      turns: QaTurn[];
-      used_hint: boolean;
-      skipped: boolean;
-    }
+    const qaGroups = groupMessagesByQuestion(messages, safeAnalysis);
 
-    let activeQid: string | null = null;
-    const groupMap = new Map<string, QaGroup>();
-
-    for (const msg of messages) {
-      if (msg.question_id) activeQid = msg.question_id;
-      if (!activeQid) continue;
-
-      if (!groupMap.has(activeQid)) {
-        const meta = safeAnalysis.questions.find((q) => q.id === activeQid);
-        groupMap.set(activeQid, {
-          question_id: activeQid,
-          question: meta?.question ?? "",
-          intent: meta?.intent ?? "",
-          good_answer_tips: meta?.good_answer_tips ?? "",
-          turns: [],
-          used_hint: false,
-          skipped: false,
-        });
-      }
-
-      const group = groupMap.get(activeQid)!;
-      const content = msg.content ?? "";
-      group.turns.push({ speaker: msg.role === "interviewer" ? "interviewer" : "user", content });
-      if (msg.role === "user") {
-        if (content.startsWith("[모범 답안]")) group.used_hint = true;
-        if (content === "[질문 건너뛰기]") group.skipped = true;
-      }
-    }
-
-    const qaGroups = Array.from(groupMap.values());
-
-    const prompt = buildEvaluationPrompt({
+    // Evaluate every question in parallel. Each call has its own retry +
+    // fallback chain. Failures surface as `failed` AnswerFinal entries,
+    // not thrown exceptions, so a single bad answer never breaks the
+    // whole report.
+    const finalized = await evaluateAllAnswers({
       qaGroups,
       analysisJson: safeAnalysis,
       resumeTexts,
+      apiKey,
+      model,
     });
 
-    const raw = await runOneShot(prompt, "평가를 시작하세요.", user.id, apiKey, model);
-
-    let reportJson;
-    try {
-      reportJson = JSON.parse(extractJson(raw));
-    } catch {
-      return Response.json({ error: "평가 결과 파싱 실패. 다시 시도해주세요." }, { status: 500 });
-    }
-
-    // Merge turns from qaGroups into each answer for display purposes (no extra AI calls).
-    const qaGroupMap = new Map(qaGroups.map((g) => [g.question_id, g]));
-    if (Array.isArray(reportJson.answers)) {
-      reportJson.answers = reportJson.answers.map((a: { question_id: string }) => ({
-        ...a,
-        turns: qaGroupMap.get(a.question_id)?.turns ?? [],
-      }));
-    }
+    const reportJson = await assembleReport({
+      finalized,
+      qaGroups,
+      analysisJson: safeAnalysis,
+      resumeTexts,
+      apiKey,
+      model,
+    });
 
     const { createClient } = await import("@/lib/supabase/server");
     const supabase = await createClient();
-    await supabase.from("interview_reports").upsert({
-      session_id: sessionId,
-      total_score: reportJson.total_score,
-      summary: reportJson.summary,
-      report_json: reportJson,
+    await supabase.from("interview_reports").upsert(
+      {
+        session_id: sessionId,
+        total_score: reportJson.total_score,
+        summary: reportJson.summary,
+        report_json: reportJson,
+      },
+      { onConflict: "session_id" },
+    );
+
+    return Response.json({ reportJson });
+  }
+
+  // ── REEVALUATE (single question) ─────────────────────────────────────────
+  if (type === "reevaluate" && body.questionId) {
+    const analysisJson = session.analysis_json as unknown as AnalysisOutput | null;
+    const messages = await getSessionMessages(sessionId);
+    const safeAnalysis = analysisJson ?? {
+      analysis: { jd_keywords: [], strengths: [], preferred_gaps: [] },
+      questions: [],
+    };
+
+    const qaGroups = groupMessagesByQuestion(messages, safeAnalysis);
+    const target = qaGroups.find((g) => g.question_id === body.questionId);
+    if (!target) {
+      return Response.json({ error: "해당 질문을 찾을 수 없습니다." }, { status: 404 });
+    }
+
+    const replacement = await evaluateAnswer({
+      qaGroup: target,
+      analysisJson: safeAnalysis,
+      resumeTexts,
+      apiKey,
+      model,
     });
+
+    // Load current report, replace just this answer, recompute totals,
+    // and rebuild the summary so it stays consistent.
+    const { createClient } = await import("@/lib/supabase/server");
+    const supabase = await createClient();
+    const { data: existing } = await supabase
+      .from("interview_reports")
+      .select("report_json")
+      .eq("session_id", sessionId)
+      .maybeSingle();
+
+    type StoredAnswer = AnswerFinal & { turns?: Array<{ speaker: "interviewer" | "user"; content: string }> };
+    const currentReport = (existing?.report_json as { answers?: StoredAnswer[] } | null) ?? null;
+    const currentAnswers: StoredAnswer[] = currentReport?.answers ?? [];
+    const idx = currentAnswers.findIndex((a) => a.question_id === body.questionId);
+    const replacementWithTurns: StoredAnswer = {
+      ...replacement,
+      turns: target.turns,
+    };
+    const nextAnswers =
+      idx >= 0
+        ? currentAnswers.map((a, i) => (i === idx ? replacementWithTurns : a))
+        : [...currentAnswers, replacementWithTurns];
+
+    const reportJson = await assembleReport({
+      finalized: nextAnswers,
+      qaGroups,
+      analysisJson: safeAnalysis,
+      resumeTexts,
+      apiKey,
+      model,
+    });
+
+    await supabase.from("interview_reports").upsert(
+      {
+        session_id: sessionId,
+        total_score: reportJson.total_score,
+        summary: reportJson.summary,
+        report_json: reportJson,
+      },
+      { onConflict: "session_id" },
+    );
 
     return Response.json({ reportJson });
   }
 
   return Response.json({ error: "알 수 없는 요청 타입입니다." }, { status: 400 });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers (used by evaluate + reevaluate)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Build QaGroups from raw messages using the new `kind` column.
+// question_id is propagated forward so follow-up turns inherit the parent.
+// `hint_shown` / `skipped` flags now come from `kind`, not from inline
+// markers in content — that removes the entire sanitization layer.
+function groupMessagesByQuestion(
+  messages: ReadonlyArray<{
+    role: "interviewer" | "user";
+    content: string | null;
+    question_id: string | null;
+    kind: "answer" | "hint_shown" | "skipped" | "interviewer";
+  }>,
+  analysis: AnalysisOutput,
+): EvaluationQaGroup[] {
+  let activeQid: string | null = null;
+  const groupMap = new Map<string, EvaluationQaGroup>();
+
+  for (const msg of messages) {
+    if (msg.question_id) activeQid = msg.question_id;
+    if (!activeQid) continue;
+
+    if (!groupMap.has(activeQid)) {
+      const meta = analysis.questions.find((q) => q.id === activeQid);
+      groupMap.set(activeQid, {
+        question_id: activeQid,
+        question: meta?.question ?? "",
+        intent: meta?.intent ?? "",
+        good_answer_tips: meta?.good_answer_tips ?? "",
+        turns: [],
+        used_hint: false,
+        skipped: false,
+      });
+    }
+
+    const group = groupMap.get(activeQid)!;
+    const content = msg.content ?? "";
+    if (msg.kind === "skipped") {
+      group.skipped = true;
+      // Don't push a turn for skipped — content is empty by design.
+      continue;
+    }
+    if (msg.kind === "hint_shown") {
+      group.used_hint = true;
+    }
+    group.turns.push({
+      speaker: msg.role === "interviewer" ? "interviewer" : "user",
+      content,
+    });
+  }
+
+  return Array.from(groupMap.values());
+}
+
+// Merge per-question results into a single legacy-shaped reportJson
+// (so existing UI keeps working), compute total_score deterministically,
+// and call evaluateSummary for the narrative fields.
+async function assembleReport(input: {
+  finalized: ReadonlyArray<AnswerFinal & { turns?: Array<{ speaker: "interviewer" | "user"; content: string }> }>;
+  qaGroups: ReadonlyArray<EvaluationQaGroup>;
+  analysisJson: AnalysisOutput;
+  resumeTexts: string[];
+  apiKey: string;
+  model: string;
+}) {
+  const { finalized, qaGroups, analysisJson, resumeTexts, apiKey, model } = input;
+
+  const turnsByQid = new Map(qaGroups.map((g) => [g.question_id, g.turns]));
+  const totalScore = computeTotalScore(finalized);
+  const counts = countByStatus(finalized);
+  const hintCount = finalized.filter((a) => a.status === "hint_shown").length;
+
+  // Summary call uses the already-finalized answers so it speaks the
+  // same numbers the user will see.
+  let summaryOut: Awaited<ReturnType<typeof evaluateSummary>> | null = null;
+  try {
+    summaryOut = await evaluateSummary({
+      answers: finalized,
+      analysisJson,
+      resumeTexts,
+      totalScore,
+      skippedCount: counts.skipped,
+      hintCount,
+      apiKey,
+      model,
+    });
+  } catch {
+    summaryOut = {
+      summary:
+        "종합 평가 생성에 실패했습니다. 답변별 점수와 피드백은 확인 가능합니다.",
+      strengths: "각 답변별 피드백을 참고해주세요.",
+      strength_keywords: ["답변별 피드백 확인"],
+      improvements: "각 답변별 피드백을 참고해주세요.",
+      improvement_keywords: ["답변별 피드백 확인"],
+    };
+  }
+
+  return {
+    total_score: totalScore,
+    summary: summaryOut.summary,
+    strengths: summaryOut.strengths,
+    strength_keywords: summaryOut.strength_keywords,
+    improvements: summaryOut.improvements,
+    improvement_keywords: summaryOut.improvement_keywords,
+    counts,
+    answers: finalized.map((a) => ({
+      question_id: a.question_id,
+      question: a.question,
+      answer: a.answer,
+      scores: a.scores,
+      average: a.average,
+      intent: a.intent,
+      feedback: a.feedback,
+      model_answers: a.model_answers,
+      status: a.status,
+      turns: a.turns ?? turnsByQid.get(a.question_id) ?? [],
+    })),
+  };
+}
+
+// Suppress unused warning for the deterministic skipped helper when the
+// route file is read in isolation; it is used by the reevaluate path.
+void buildSkippedAnswer;

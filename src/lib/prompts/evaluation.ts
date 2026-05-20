@@ -1,5 +1,26 @@
 import type { AnalysisOutput } from "./analysis";
 
+// Re-exported for compatibility with consumers that imported these types
+// from the old single-prompt module.
+export interface QaTurn {
+  speaker: "interviewer" | "user";
+  content: string;
+}
+
+export interface QaGroup {
+  question_id: string;
+  question: string;
+  intent: string;
+  good_answer_tips: string;
+  turns: QaTurn[];
+  used_hint: boolean;
+  skipped: boolean;
+}
+
+// Legacy aggregate type kept so existing UI/DB readers compile while the
+// new structured types (AnswerEvaluationOutput / SummaryEvaluationOutput)
+// take over the actual evaluation contract. Built up server-side from
+// per-question outputs + summary output + deterministic post-processing.
 export interface EvaluationOutput {
   total_score: number;
   summary: string;
@@ -11,141 +32,252 @@ export interface EvaluationOutput {
     question_id: string;
     question: string;
     answer: string;
-    scores: {
-      logic: number;
-      specificity: number;
-      job_fit: number;
-    };
+    scores: { logic: number; specificity: number; job_fit: number };
     average: number;
     intent: string[];
     feedback: string;
-    model_answers: Array<{ question: string; model_answer: string }>;
+    model_answers: Array<{ question: string; intent: string[]; model_answer: string }>;
   }>;
 }
 
-interface QaTurn { speaker: "interviewer" | "user"; content: string }
-interface QaGroup {
-  question_id: string;
-  question: string;
-  intent: string;
-  good_answer_tips: string;
-  turns: QaTurn[];
-  used_hint: boolean;
-  skipped: boolean;
+function resumeSectionOf(resumeTexts: string[]): string {
+  return resumeTexts.length > 0
+    ? resumeTexts.join("\n\n")
+    : "제출된 문서가 없습니다.";
 }
 
-export function buildEvaluationPrompt(params: {
-  qaGroups: QaGroup[];
+function jdSectionOf(analysisJson: AnalysisOutput): string {
+  return [
+    `- 핵심 키워드: ${analysisJson.analysis.jd_keywords.join(", ") || "없음"}`,
+    `- 강점: ${analysisJson.analysis.strengths.join(", ") || "없음"}`,
+    `- 부족한 부분: ${analysisJson.analysis.preferred_gaps.join(", ") || "없음"}`,
+  ].join("\n");
+}
+
+// Anchor rubric is the same for every single-answer evaluation call.
+// Keeping it as a constant ensures every question is judged on the same
+// scale (the core reason we split into per-question calls in the first
+// place).
+const ANCHOR_RUBRIC = `## 평가 기준 (각 항목 0~100점, 5단계 anchor)
+
+### logic (논리성)
+- 90~100: 결론·근거·구조가 일관됨. 모순 없음. 두괄식 또는 명확한 흐름.
+- 70~89:  대체로 일관되나 일부 비약/장황함.
+- 50~69:  기본 논리는 있으나 비약 다수.
+- 30~49:  논리 약함. 결론과 근거가 불일치하거나 결론이 명확하지 않음.
+- 0~29:   논리적 구조가 거의 없음.
+
+### specificity (구체성)
+- 90~100: 프로젝트명·수치(%, 배수, 건수, 기간)·도구가 다수. STAR 완비.
+- 70~89:  일부 수치와 구체적 사례 포함. STAR 일부.
+- 50~69:  사례는 있으나 추상적.
+- 30~49:  사례 모호. 수치 부재.
+- 0~29:   완전 추상. "잘했습니다" 수준.
+
+### job_fit (직무 적합성)
+- 90~100: JD 핵심 키워드와 강하게 매칭. 부족한 부분을 어떻게 보완할지 언급.
+- 70~89:  대체로 매칭.
+- 50~69:  부분 매칭.
+- 30~49:  약한 매칭.
+- 0~29:   매칭 거의 없음.`;
+
+const MODEL_ANSWER_RULES = `## 모범 답안 작성 규칙 (model_answers)
+
+각 model_answers 항목:
+- 지원자의 1인칭으로 작성. 실제 면접에서 바로 사용할 수 있는 자연스러운 한국어.
+- 지원자 제출 문서(이력서/포트폴리오/GitHub)에 등장하는 프로젝트명·역할·수치를 구체적으로 인용.
+- 문서에 없는 상황·수치·프로젝트·경험은 절대 만들어내지 않음. 문서에 단서가 약하면 일반론으로 짧게.
+- STAR(상황·과제·행동·결과)를 문서 범위 안에서 활용.
+- 본 질문과 꼬리질문이 가능하면 서로 다른 프로젝트를 인용. 문서에 다른 프로젝트가 없으면 같은 것 재사용 허용.
+- model_answer는 최소 2~3문장 이상의 충분한 길이로 작성.
+
+각 model_answers 항목의 필드:
+- question: 본 질문 또는 꼬리질문의 원문 그대로
+- intent: 면접관이 이 질문으로 확인하려 한 핵심을 2~4개의 짧은 명사형 키워드 배열 (문장 금지)
+- model_answer: 위 규칙에 따라 작성한 1인칭 답변 본문`;
+
+export interface BuildAnswerPromptInput {
+  qaGroup: QaGroup;
   analysisJson: AnalysisOutput;
   resumeTexts: string[];
-}): string {
-  const { qaGroups, analysisJson, resumeTexts } = params;
+}
 
-  const resumeSection =
-    resumeTexts.length > 0
-      ? resumeTexts.join("\n\n")
-      : "제출된 문서가 없습니다.";
+// Build the per-question prompt. The hint flag is passed as a LABEL the
+// LLM sees ("모범 답안 참조: 예/아니오"); the score cap itself is applied
+// server-side in postprocess.ts regardless of what the LLM does.
+export function buildAnswerEvaluationPrompt(input: BuildAnswerPromptInput): string {
+  const { qaGroup, analysisJson, resumeTexts } = input;
+  const dialogue = qaGroup.turns
+    .map((t) => `[${t.speaker === "interviewer" ? "면접관" : "지원자"}] ${t.content}`)
+    .join("\n");
 
-  const groupedText = qaGroups
-    .map((g) => {
-      const header = `### [${g.question_id}] ${g.question}
-- 질문 의도: ${g.intent}
-- 좋은 답변 포인트: ${g.good_answer_tips}
-- 모범 답안 참조: ${g.used_hint ? "예" : "아니오"} / 건너뜀: ${g.skipped ? "예" : "아니오"}`;
-
-      const dialogue = g.turns
-        .map((t) => `[${t.speaker === "interviewer" ? "면접관" : "지원자"}] ${t.content}`)
-        .join("\n");
-
-      return `${header}\n\n${dialogue}`;
-    })
-    .join("\n\n---\n\n");
-
-  return `당신은 IT 직무 면접 평가 전문가입니다. 아래 질문별 대화 그룹을 분석하고 상세한 피드백 리포트를 생성하세요.
+  return `당신은 IT 직무 면접 평가 전문가입니다. 아래 하나의 질문 그룹에 대해 채점·피드백·모범 답안을 생성하세요.
 
 ## 지원자 제출 문서 (이력서 / 포트폴리오 / GitHub)
-${resumeSection}
+${resumeSectionOf(resumeTexts)}
 
 ## JD 분석 요약
-- 핵심 키워드: ${analysisJson.analysis.jd_keywords.join(", ") || "없음"}
-- 강점: ${analysisJson.analysis.strengths.join(", ") || "없음"}
-- 부족한 부분: ${analysisJson.analysis.preferred_gaps.join(", ") || "없음"}
+${jdSectionOf(analysisJson)}
 
-## 질문별 대화 그룹
-각 그룹은 하나의 메인 질문과 그에 따른 follow-up 및 답변 전체를 포함합니다.
+## 질문 그룹
+### [${qaGroup.question_id}] ${qaGroup.question}
+- 질문 의도: ${qaGroup.intent}
+- 좋은 답변 포인트: ${qaGroup.good_answer_tips}
+- 모범 답안 참조: ${qaGroup.used_hint ? "예" : "아니오"}
 
-${groupedText}
+대화 전체(본 질문 + 모든 꼬리질문 + 답변):
+${dialogue}
 
-## 평가 기준
-각 질문 그룹의 답변 전체(follow-up 포함)를 종합해 0~100점 평가:
-- **logic (논리성)**: 답변의 논리적 구조와 일관성
-- **specificity (구체성)**: 구체적인 사례, 수치, 결과 포함 여부
-- **job_fit (직무 적합성)**: JD의 요구 역량과의 부합도
-
-## 특수 마커 처리 규칙
-- **모범 답안 참조: 예** → 해당 질문의 모든 점수를 최대 40점으로 제한. feedback에 "모범 답안을 참조한 답변입니다" 명시.
-- **건너뜀: 예** → 모든 점수 0점. answer를 "건너뜀"으로. feedback에 "건너뛴 질문입니다" 명시.
+${ANCHOR_RUBRIC}
 
 ## 평가 지시사항
-1. 각 질문 그룹(question_id)마다 answers 항목을 하나씩 생성하세요.
-2. 각 질문의 intent와 good_answer_tips를 기준으로 채점하세요.
-2-1. intent: 면접관이 이 질문으로 확인하려 한 핵심을 2~4개의 짧은 키워드 배열로 추출하세요. 문장 금지. 예: ["역할 명확성", "기술 이해도", "성과 측정 방식"]
-3. feedback: 각 점수 영역(논리성·구체성·직무 적합성)의 채점 근거를 포함하되, 각 영역을 별도로 나열하지 말고 자연스러운 한 문단으로 작성하세요. 잘한 점과 부족한 점을 균형 있게 서술하고, 마지막 문장에 핵심 개선 방향을 제시하세요.
-4. total_score는 모든 답변의 average 점수의 평균입니다.
-5. summary: 전체 면접에 대한 종합 평가를 3~5문장으로 작성하세요. 모범 답안 참조·건너뛰기 사용 여부도 언급하세요.
-6. strengths: 면접 전반에서 지원자가 잘한 점을 3~5문장으로 서술하세요. 특정 질문을 언급하더라도 전체 흐름 속에서의 강점을 중심으로 작성하세요.
-7. improvements: 면접 전반에서 지원자가 개선해야 할 포인트를 3~5문장으로 서술하세요. 부족했던 부분과 구체적인 개선 방향을 중심으로 작성하세요.
-8. strength_keywords: strengths에서 핵심 강점을 2~4개의 짧은 명사형 키워드 배열로 추출하세요. 예: ["논리적 구조", "직무 이해도", "두괄식 답변"]. 문장 금지.
-9. improvement_keywords: improvements에서 핵심 개선 포인트를 2~4개의 짧은 명사형 키워드 배열로 추출하세요. 예: ["수치 기반 근거", "답변 간결성"]. 문장 금지.
+1. 위 anchor rubric의 5단계 기준에 따라 logic / specificity / job_fit 각 0~100점.
+2. average는 세 항목의 산술 평균을 정수로(서버에서 다시 계산하지만 일관되게 작성).
+3. answer 필드: 지원자 답변(꼬리질문 포함)을 1~2문장으로 요약.
+4. intent: 이 질문으로 면접관이 확인하려 한 핵심을 2~4개의 짧은 명사형 키워드 배열.
+5. feedback: 잘한 점과 부족한 점을 균형 있게 한 문단으로. 마지막 문장에 핵심 개선 방향. 각 점수 영역을 별도 나열하지 말고 자연스러운 문단으로.
+6. **모범 답안 참조: 예** 인 경우 — 점수를 최대 30점으로 제한(서버가 한 번 더 강제). feedback에 모범 답안을 참조했다는 점을 자연스럽게 언급.
 
-## 모범 답안 생성 지침 (model_answers)
+${MODEL_ANSWER_RULES}
 
-**중요: model_answers는 모범 답안 참조(used_hint) 여부와 무관하게 모든 질문 그룹에서 반드시 생성하세요. 지원자가 힌트를 참조했더라도 지원자 제출 문서를 바탕으로 새롭게 작성된 모범 답안을 제시해야 합니다. 건너뛴 질문만 빈 배열로 설정합니다.**
+## 출력 형식
+반드시 유효한 JSON만 반환. 마크다운 코드 펜스 사용 금지.
+스키마는 호출 측이 구조화 출력으로 강제합니다 — 모든 필수 필드를 누락 없이 채우세요.
 
-각 질문 그룹의 model_answers는 아래 규칙을 반드시 준수하세요.
-
-**[전제] 모범 답안 작성 전 필수 준비 단계**
-위 "지원자 제출 문서" 전체를 먼저 스캔하여 다음을 파악하세요:
-- 등장하는 모든 프로젝트명과 본인의 역할
-- 프로젝트별 주요 성과 (%, 배수, 건수, 기간 등 수치 포함)
-- 사용 기술 스택과 해결한 문제
-
-**[작성 규칙]**
-- 모범 답안에는 반드시 문서에 등장하는 프로젝트명, 본인의 역할, 주요 성과(수치)를 구체적으로 포함하세요. 추상적이거나 일반적인 답변은 금지입니다.
-- 성과를 언급할 때는 문서에 기재된 수치(%, 배수, 건수 등)로 반드시 뒷받침하세요. 수치 없는 성과 서술은 불완전한 답변입니다.
-- 문서에 없는 상황, 수치, 프로젝트, 경험은 절대로 만들어내거나 추측하지 마세요.
-- 지원자의 목소리(1인칭)로 작성하세요. 실제 면접에서 바로 사용할 수 있는 자연스러운 한국어로.
-- STAR 기법(상황-과제-행동-결과)을 문서 내용 범위 안에서 활용하세요.
-- 동일 질문 그룹 내에서 본 질문과 꼬리질문의 모범 답안이 같은 프로젝트를 반복하지 않도록, 가능한 경우 서로 다른 경험을 활용하세요.
-- 건너뛴 질문은 model_answers를 빈 배열로 설정하세요.
-
-**[필드 작성법]**
-- question 필드: 해당 질문 내용을 그대로 입력
-- intent 필드: 해당 질문으로 면접관이 확인하려 한 핵심을 2~4개의 짧은 키워드 배열로 추출. 문장 금지. 예: ["수치 근거 확인", "문제 해결 과정"]
-- model_answer 필드: 위 작성 규칙에 따라 문서 기반으로 작성한 1인칭 답변 텍스트
-
-## 출력 형식 (반드시 유효한 JSON만 반환, 마크다운 코드 블록 없이)
 {
-  "total_score": 82,
-  "summary": "전체 면접 종합 평가 (3~5문장)",
-  "strengths": "면접 전반에서 잘한 점 (3~5문장)",
-  "strength_keywords": ["강점키워드1", "강점키워드2"],
-  "improvements": "면접 전반에서 개선할 점 (3~5문장)",
-  "improvement_keywords": ["개선키워드1", "개선키워드2"],
-  "answers": [
-    {
-      "question_id": "q1",
-      "question": "질문 내용",
-      "answer": "지원자 답변 요약",
-      "scores": { "logic": 85, "specificity": 70, "job_fit": 90 },
-      "average": 82,
-      "intent": ["키워드1", "키워드2", "키워드3"],
-      "feedback": "이 답변에 대한 피드백",
-      "model_answers": [
-        { "question": "본 질문 내용", "intent": ["키워드1", "키워드2"], "model_answer": "본 질문 모범 답안" },
-        { "question": "꼬리질문 1 내용", "intent": ["키워드3", "키워드4"], "model_answer": "꼬리질문 1 모범 답안" }
-      ]
-    }
+  "question_id": "${qaGroup.question_id}",
+  "question": "본 질문 원문",
+  "answer": "지원자 답변 요약 1~2문장",
+  "scores": { "logic": 0~100, "specificity": 0~100, "job_fit": 0~100 },
+  "average": 0~100,
+  "intent": ["키워드1", "키워드2"],
+  "feedback": "잘한 점과 부족한 점, 개선 방향을 한 문단으로",
+  "model_answers": [
+    { "question": "본 질문 원문", "intent": ["키워드1","키워드2"], "model_answer": "..." },
+    { "question": "꼬리질문 원문", "intent": ["..."], "model_answer": "..." }
   ]
 }`;
+}
+
+export interface BuildSkippedModelAnswerPromptInput {
+  qaGroup: QaGroup;
+  analysisJson: AnalysisOutput;
+  resumeTexts: string[];
+}
+
+// For skipped questions we still want a model answer (learning value),
+// but no scoring. Use this prompt to ask for just model_answers; the
+// score / feedback fields are filled deterministically server-side.
+export function buildSkippedModelAnswerPrompt(input: BuildSkippedModelAnswerPromptInput): string {
+  const { qaGroup, analysisJson, resumeTexts } = input;
+  return `당신은 IT 직무 면접 모범 답안 작성 전문가입니다. 아래 질문에 대해, 지원자가 답변을 건너뛰었지만 학습용으로 모범 답안을 작성하세요.
+
+## 지원자 제출 문서 (이력서 / 포트폴리오 / GitHub)
+${resumeSectionOf(resumeTexts)}
+
+## JD 분석 요약
+${jdSectionOf(analysisJson)}
+
+## 질문
+### [${qaGroup.question_id}] ${qaGroup.question}
+- 질문 의도: ${qaGroup.intent}
+- 좋은 답변 포인트: ${qaGroup.good_answer_tips}
+
+${MODEL_ANSWER_RULES}
+
+## 출력 형식
+아래 스키마를 따르는 JSON 하나만 반환하세요. 점수·피드백·answer 필드는 서버가 결정적으로 채울 빈 자리이므로 정확히 다음 값을 그대로 사용:
+
+{
+  "question_id": "${qaGroup.question_id}",
+  "question": "${qaGroup.question.replace(/"/g, '\\"')}",
+  "answer": "건너뛴 질문입니다.",
+  "scores": { "logic": 0, "specificity": 0, "job_fit": 0 },
+  "average": 0,
+  "intent": ["키워드1", "키워드2"],
+  "feedback": "건너뛴 질문입니다. 종합 점수 계산에서 제외되었습니다.",
+  "model_answers": [
+    { "question": "본 질문 원문", "intent": ["키워드1","키워드2"], "model_answer": "..." }
+  ]
+}`;
+}
+
+export interface BuildSummaryPromptInput {
+  analysisJson: AnalysisOutput;
+  resumeTexts: string[];
+  // Already post-processed and finalized answers (scores already capped /
+  // skipped handled). Used to seed the summary so it stays consistent
+  // with the per-answer story.
+  answers: Array<{
+    question_id: string;
+    question: string;
+    answer: string;
+    scores: { logic: number; specificity: number; job_fit: number };
+    average: number;
+    feedback: string;
+  }>;
+  totalScore: number;
+  skippedCount: number;
+  hintCount: number;
+}
+
+export function buildSummaryEvaluationPrompt(input: BuildSummaryPromptInput): string {
+  const { analysisJson, resumeTexts, answers, totalScore, skippedCount, hintCount } = input;
+  const compact = answers
+    .map(
+      (a, i) =>
+        `${i + 1}. [${a.question_id}] (평균 ${a.average}점, logic ${a.scores.logic} · specificity ${a.scores.specificity} · job_fit ${a.scores.job_fit})\n   Q: ${a.question}\n   답변 요약: ${a.answer}\n   피드백: ${a.feedback}`,
+    )
+    .join("\n\n");
+
+  return `당신은 IT 직무 면접 평가 전문가입니다. 아래는 한 면접 세션의 질문별 채점 결과입니다. 이를 종합해 면접 전반에 대한 평가를 작성하세요.
+
+## 지원자 제출 문서 (요약 시 인용 시 참고)
+${resumeSectionOf(resumeTexts)}
+
+## JD 분석 요약
+${jdSectionOf(analysisJson)}
+
+## 질문별 평가 (서버 후처리 완료)
+- 총 답변 수: ${answers.length}
+- 건너뜀: ${skippedCount}
+- 모범 답안 참조: ${hintCount}
+- 종합 점수 (skipped 제외 평균): ${totalScore}
+
+${compact}
+
+## 작성 지침
+1. summary: 면접 전반에 대한 종합 평가 3~5문장. 모범 답안 참조 / 건너뛰기가 있었다면 자연스럽게 언급.
+2. strengths: 면접 전반에서 지원자가 잘한 점 3~5문장.
+3. improvements: 면접 전반에서 개선해야 할 포인트 3~5문장. 구체적 개선 방향 포함.
+4. strength_keywords: strengths의 핵심 강점을 2~4개의 짧은 명사형 키워드 배열. 문장 금지.
+5. improvement_keywords: improvements의 핵심 개선 포인트를 2~4개의 짧은 명사형 키워드 배열. 문장 금지.
+
+종합 점수(total_score)는 서버가 이미 계산했으므로 출력에 포함하지 마세요.
+
+## 출력 형식
+반드시 유효한 JSON만 반환. 마크다운 코드 펜스 금지.
+
+{
+  "summary": "...",
+  "strengths": "...",
+  "strength_keywords": ["..."],
+  "improvements": "...",
+  "improvement_keywords": ["..."]
+}`;
+}
+
+// Marker assertion used in tests AND at runtime as a defense in depth.
+// If a sanitized turn somehow still carries the legacy marker, we throw
+// before that prompt reaches the LLM.
+export const LEGACY_MARKERS = ["[모범 답안]", "[질문 건너뛰기]"] as const;
+
+export function assertNoLegacyMarkers(prompt: string): void {
+  for (const marker of LEGACY_MARKERS) {
+    if (prompt.includes(marker)) {
+      throw new Error(
+        `Evaluation prompt leaks legacy marker "${marker}". Did sanitization break?`,
+      );
+    }
+  }
 }

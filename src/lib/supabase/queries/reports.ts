@@ -18,6 +18,8 @@ export interface ModelAnswerEntry {
   model_answer: string
 }
 
+export type AnswerStatus = "answered" | "hint_shown" | "skipped" | "failed"
+
 export interface AnswerReport {
   question_id: string
   question: string
@@ -28,8 +30,15 @@ export interface AnswerReport {
   feedback: string
   model_answers?: ModelAnswerEntry[]
   turns?: QaTurn[]
+  status?: AnswerStatus
 }
 
+export interface ReportCounts {
+  total: number
+  responded: number
+  skipped: number
+  failed: number
+}
 
 export interface ReportJson {
   total_score: number
@@ -39,6 +48,7 @@ export interface ReportJson {
   improvements: string
   improvement_keywords?: string[]
   answers: AnswerReport[]
+  counts?: ReportCounts
 }
 
 export interface InterviewReport {
