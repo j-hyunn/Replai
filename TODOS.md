@@ -4,27 +4,14 @@
 
 ## Evaluation pipeline
 
-- **Gemini 호출 동시성 제한**
-  - **Priority:** P1
-  - **What:** `evaluateAllAnswers`가 `Promise.all`로 모든 질문을 동시 호출. 인터뷰 질문 수가 많을 때 BYOK 무료 키 RPM 초과 가능. `p-limit(4)` 정도로 cap.
-  - **Why:** /ship 리뷰에서 retry storm 시나리오 지적됨.
-  - **Files:** `src/lib/evaluation/run.ts:285` (`evaluateAllAnswers`)
-
-- **`callGemini` 타임아웃 추가**
-  - **Priority:** P1
-  - **What:** `AbortController` + 8s timeout 추가. 현재 fetch가 hang하면 Vercel 10s 한계까지 대기.
-  - **Files:** `src/lib/evaluation/run.ts:68`
-
-- **`evaluateAnswer` 실패 로깅**
+- **재평가 idempotency 토큰**
   - **Priority:** P2
-  - **What:** `buildFailedAnswer` / `buildSkippedAnswer` 빈 catch에서 `console.error`로 원인 기록.
-  - **Why:** 운영에서 "failed" 카드가 떴을 때 디버그 단서 없음.
-  - **Files:** `src/lib/evaluation/run.ts` (try/catch 두 곳)
+  - **What:** ReevaluateBlock 더블 클릭/다중 탭에서 동시 reevaluate POST 가능. 기존 report row id를 `If-Match`로 전달하거나 client-side 락 추가.
+  - **Files:** `src/components/report/ReportView.tsx` `ReevaluateBlock`, `src/app/api/interview/route.ts` reevaluate 핸들러
 
-- **`applyHintCap` 캡 발동 로깅**
-  - **Priority:** P3
-  - **What:** LLM이 30점 초과 반환했을 때 console.warn으로 기록. 프롬프트 드리프트 감지용.
-  - **Files:** `src/lib/evaluation/postprocess.ts`
+- **분산 측정 baseline 캡처**
+  - **Priority:** P2
+  - **What:** `scripts/eval-consistency.ts`를 5회 실행해서 현재 stdev를 baseline으로 기록. 향후 프롬프트 변경 시 비교용.
 
 - **재평가 idempotency 토큰**
   - **Priority:** P2
@@ -64,6 +51,9 @@
   - **Files:** `src/components/report/ReportView.test.tsx` (신규)
 
 ## Completed
+
+- **Gemini 호출 동시성 제한 + 타임아웃 + 실패 로깅** — Completed: 2026-05-21
+  - p-limit(4), AbortController 8s, console.error/warn 추가. `src/lib/evaluation/run.ts`, `postprocess.ts`.
 
 - **평가 결정성 강화 (v0.2.0)** — Completed: 2026-05-20
   - DB `kind` 컬럼 + 단건 평가 + Zod schema + 서버 후처리 + 리포트 UI 4-상태. T1~T11 + Visual Design Spec.
