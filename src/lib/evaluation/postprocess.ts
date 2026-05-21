@@ -59,6 +59,16 @@ export function applyHintCap(answer: AnswerEvaluationOutput): AnswerFinal {
     specificity: Math.min(answer.scores.specificity, HINT_SCORE_CAP),
     job_fit: Math.min(answer.scores.job_fit, HINT_SCORE_CAP),
   };
+  const exceeded = Object.entries(answer.scores).filter(
+    ([, v]) => v > HINT_SCORE_CAP,
+  );
+  if (exceeded.length > 0) {
+    console.warn("[applyHintCap] LLM exceeded hint cap — prompt drift?", {
+      question_id: answer.question_id,
+      original: answer.scores,
+      capped,
+    });
+  }
   const average = Math.round(
     (capped.logic + capped.specificity + capped.job_fit) / 3,
   );

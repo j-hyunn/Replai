@@ -1,3 +1,4 @@
+import pLimit from "p-limit";
 import { z } from "zod";
 import {
   AnswerEvaluationSchema,
@@ -25,6 +26,8 @@ import type { AnalysisOutput } from "@/lib/prompts/analysis";
 
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = 250;
+const GEMINI_TIMEOUT_MS = 8_000;
+const EVAL_CONCURRENCY = 4;
 
 export class EvaluationFailedError extends Error {
   constructor(
@@ -84,11 +87,20 @@ async function callGemini(input: GeminiCallInput): Promise<string> {
     },
   };
 
-  const res = await fetchImpl(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -207,10 +219,14 @@ export async function evaluateAnswer(input: EvaluateAnswerInput): Promise<Answer
         intent: raw.intent,
         model_answers: raw.model_answers,
       });
-    } catch {
+    } catch (err) {
       // Even the skipped-model-answer call failed. Ship a skipped record
       // with the placeholder model answer rather than failing the entire
       // session — the user can still see scores for other answers.
+      console.error("[evaluateAnswer] skipped model-answer call failed", {
+        question_id: qaGroup.question_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return buildSkippedAnswer({
         question_id: qaGroup.question_id,
         question: qaGroup.question,
@@ -228,7 +244,11 @@ export async function evaluateAnswer(input: EvaluateAnswerInput): Promise<Answer
       AnswerEvaluationSchema,
     );
     return qaGroup.used_hint ? applyHintCap(raw) : applyAnsweredOverrides(raw);
-  } catch {
+  } catch (err) {
+    console.error("[evaluateAnswer] evaluation call failed, returning failed card", {
+      question_id: qaGroup.question_id,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return buildFailedAnswer({
       question_id: qaGroup.question_id,
       question: qaGroup.question,
@@ -280,9 +300,10 @@ export interface EvaluateAllAnswersInput {
 
 export async function evaluateAllAnswers(input: EvaluateAllAnswersInput): Promise<AnswerFinal[]> {
   const { qaGroups, analysisJson, resumeTexts, apiKey, model } = input;
+  const limit = pLimit(EVAL_CONCURRENCY);
   return Promise.all(
     qaGroups.map((qaGroup) =>
-      evaluateAnswer({ qaGroup, analysisJson, resumeTexts, apiKey, model }),
+      limit(() => evaluateAnswer({ qaGroup, analysisJson, resumeTexts, apiKey, model })),
     ),
   );
 }
