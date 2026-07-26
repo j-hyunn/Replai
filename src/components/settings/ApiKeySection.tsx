@@ -132,8 +132,8 @@ export default function ApiKeySection({
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">내 AI 모델 사용하기</h2>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h2 className="text-xl font-semibold">내 AI 모델 사용하기</h2>
+          <p className="text-base text-muted-foreground mt-1">
             {keySaved
               ? `내 API 키 사용 중 — ${savedModel}`
               : "기본 모델 사용 중 (gemini-2.5-flash)"}
@@ -208,12 +208,12 @@ export default function ApiKeySection({
 
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <label className="text-sm text-muted-foreground">이름</label>
+              <label className="text-base text-muted-foreground">이름</label>
               <Input value="GOOGLE_API_KEY" disabled />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-sm text-muted-foreground">API Key</label>
+              <label className="text-base text-muted-foreground">API Key</label>
               <Input
                 type="text"
                 placeholder={isEditing ? "새 키를 입력하면 교체됩니다" : "API 키를 입력하세요"}
@@ -241,7 +241,7 @@ export default function ApiKeySection({
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-sm text-muted-foreground">모델 선택</label>
+              <label className="text-base text-muted-foreground">모델 선택</label>
               <Select
                 value={model}
                 onValueChange={(v) => setModel(v as SupportedModelId)}

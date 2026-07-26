@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { createInterviewSessionAction } from "@/app/(main)/interview/actions";
@@ -24,13 +24,30 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2Icon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils/index";
 import type { UserDocument } from "@/lib/supabase/queries/documents";
+
+interface PrefillJd {
+  company_name: string;
+  position: string;
+  jd_text: string;
+}
+
+interface SubmittedResumeSummary {
+  id: string;
+  company_name: string;
+  position: string;
+  jd_text: string;
+}
 
 interface NewInterviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   documents: UserDocument[];
+  prefillJd?: PrefillJd | null;
+  submittedResumeId?: string | null;
+  submittedResumes?: SubmittedResumeSummary[];
 }
 
 function toOptions(docs: UserDocument[]): ComboboxOption[] {
@@ -43,21 +60,20 @@ export default function NewInterviewDialog({
   open,
   onOpenChange,
   documents,
+  prefillJd,
+  submittedResumeId: initialSubmittedResumeId,
+  submittedResumes = [],
 }: NewInterviewDialogProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [stage, setStage] = useState<StartStage>("idle");
 
-  // Title
   const [title, setTitle] = useState("");
-
-  // JD
   const [jdText, setJdText] = useState("");
 
   // Documents — multi-select
   const [resumeIds, setResumeIds] = useState<string[]>([]);
   const [portfolioIds, setPortfolioIds] = useState<string[]>([]);
-  const [githubIds, setGithubIds] = useState<string[]>([]);
 
   // Duration
   const [duration, setDuration] = useState<"10" | "30" | "60" | "90" | "">("");
@@ -68,13 +84,28 @@ export default function NewInterviewDialog({
   // Optional
   const [referenceLink, setReferenceLink] = useState("");
 
+  // Submitted resume selection
+  const [selectedSubmittedResumeId, setSelectedSubmittedResumeId] = useState<string>("");
+
+  // Apply prefill when dialog opens
+  useEffect(() => {
+    if (open) {
+      if (initialSubmittedResumeId) {
+        // Navigated from submitted resume detail page — pin that resume
+        setSelectedSubmittedResumeId(initialSubmittedResumeId);
+      }
+      if (prefillJd) {
+        setTitle(`${prefillJd.company_name} ${prefillJd.position}`.trim());
+        setJdText(prefillJd.jd_text);
+      }
+    }
+  }, [open, prefillJd, initialSubmittedResumeId]);
+
   const resumes = documents.filter((d) => d.type === "resume");
   const portfolios = documents.filter((d) => d.type === "portfolio");
-  const githubDocs = documents.filter((d) => d.type === "git");
 
   const resumeOptions = toOptions(resumes);
   const portfolioOptions = toOptions(portfolios);
-  const githubOptions = toOptions(githubDocs);
 
   const canStart = title.trim() !== "" && resumeIds.length > 0 && persona !== "" && duration !== "";
 
@@ -83,10 +114,19 @@ export default function NewInterviewDialog({
     setJdText("");
     setResumeIds([]);
     setPortfolioIds([]);
-    setGithubIds([]);
     setDuration("");
     setPersona("");
     setReferenceLink("");
+    setSelectedSubmittedResumeId("");
+  }
+
+  function handleSubmittedResumeSelect(id: string) {
+    setSelectedSubmittedResumeId(id);
+    if (id === "") return;
+    const found = submittedResumes.find((r) => r.id === id);
+    if (!found) return;
+    setTitle(`${found.company_name} ${found.position}`.trim());
+    setJdText(found.jd_text);
   }
 
   function handleOpenChange(next: boolean) {
@@ -98,7 +138,7 @@ export default function NewInterviewDialog({
     if (!canStart) return;
 
     const jdContent = jdText.trim();
-    const selectedIds = [...resumeIds, ...portfolioIds, ...githubIds];
+    const selectedIds = [...resumeIds, ...portfolioIds];
 
     startTransition(async () => {
       // 가드: 선택된 모든 문서가 normalize 'done' 상태여야 인터뷰 시작 가능.
@@ -130,6 +170,7 @@ export default function NewInterviewDialog({
         persona: persona as "explorer" | "pressure" | "technical",
         durationMinutes: Number(duration),
         resumeIds: selectedIds,
+        submittedResumeId: selectedSubmittedResumeId || null,
       });
 
       if ("error" in result) {
@@ -154,13 +195,13 @@ export default function NewInterviewDialog({
         {isPending && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-lg bg-background/90 backdrop-blur-sm">
             <Loader2Icon className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-sm font-medium">
+            <p className="text-base font-medium">
               {stage === "preparing"
                 ? "AI 분석을 마무리하고 있어요..."
                 : "면접을 생성하고 있어요..."}
             </p>
             {stage === "preparing" && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 최대 1분 정도 걸릴 수 있어요. 잠시만 기다려주세요.
               </p>
             )}
@@ -168,11 +209,44 @@ export default function NewInterviewDialog({
         )}
 
         <div className="space-y-6 py-2">
+          {/* Submitted resume — pinned badge (when navigated from submitted resume page) */}
+          {initialSubmittedResumeId && prefillJd && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">연동된 이력서</span>
+              <Badge variant="secondary">
+                {prefillJd.company_name} {prefillJd.position} 제출본
+              </Badge>
+            </div>
+          )}
+
+          {/* Submitted resume select — shown only when not pre-pinned and resumes exist */}
+          {!initialSubmittedResumeId && submittedResumes.length > 0 && (
+            <section className="space-y-2">
+              <label className="text-base font-medium">
+                제출용 이력서 불러오기
+                <span className="ml-1 text-sm text-muted-foreground font-normal">(선택)</span>
+              </label>
+              <Select value={selectedSubmittedResumeId} onValueChange={handleSubmittedResumeSelect}>
+                <SelectTrigger>
+                  <SelectValue placeholder="직접 입력" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">직접 입력</SelectItem>
+                  {submittedResumes.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.company_name} {r.position}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </section>
+          )}
+
           {/* 0. Title */}
           <section className="space-y-2">
-            <label className="text-sm font-medium">
+            <label className="text-base font-medium">
               면접 이름
-              <span className="ml-1 text-xs text-primary font-normal">*필수</span>
+              <span className="ml-1 text-sm text-primary font-normal">*필수</span>
             </label>
             <Input
               placeholder="예) 카카오 프론트엔드 2차 면접"
@@ -183,9 +257,9 @@ export default function NewInterviewDialog({
 
           {/* 1. Persona */}
           <section className="space-y-2">
-            <label className="text-sm font-medium">
+            <label className="text-base font-medium">
               면접관 페르소나
-              <span className="ml-1 text-xs text-primary font-normal">*필수</span>
+              <span className="ml-1 text-sm text-primary font-normal">*필수</span>
             </label>
             <div className="grid grid-cols-2 gap-2">
               {(
@@ -206,8 +280,8 @@ export default function NewInterviewDialog({
                       : "border-border hover:bg-muted"
                   )}
                 >
-                  <span className="text-xs font-medium">{p.label}</span>
-                  <span className={cn("text-xs", persona === p.value ? "text-primary/70" : "text-muted-foreground")}>
+                  <span className="text-sm font-medium">{p.label}</span>
+                  <span className={cn("text-sm", persona === p.value ? "text-primary/70" : "text-muted-foreground")}>
                     {p.desc}
                   </span>
                 </button>
@@ -217,9 +291,9 @@ export default function NewInterviewDialog({
 
           {/* 2. Duration */}
           <section className="space-y-2">
-            <label className="text-sm font-medium">
+            <label className="text-base font-medium">
               면접 시간
-              <span className="ml-1 text-xs text-primary font-normal">*필수</span>
+              <span className="ml-1 text-sm text-primary font-normal">*필수</span>
             </label>
             <Select value={duration} onValueChange={(v) => setDuration(v as "10" | "30" | "60" | "90")}>
               <SelectTrigger>
@@ -236,9 +310,9 @@ export default function NewInterviewDialog({
 
           {/* 3. JD */}
           <section className="space-y-2">
-            <label className="text-sm font-medium">
+            <label className="text-base font-medium">
               지원 포지션 JD
-              <span className="ml-1 text-xs text-muted-foreground font-normal">
+              <span className="ml-1 text-sm text-muted-foreground font-normal">
                 (선택)
               </span>
             </label>
@@ -252,12 +326,12 @@ export default function NewInterviewDialog({
 
           {/* 3. Resume */}
           <section className="space-y-2">
-            <label className="text-sm font-medium">
+            <label className="text-base font-medium">
               이력서 / 경력기술서
-              <span className="ml-1 text-xs text-primary font-normal">*필수</span>
+              <span className="ml-1 text-sm text-primary font-normal">*필수</span>
             </label>
             {resumes.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-2">
+              <p className="text-base text-muted-foreground py-2">
                 저장된 이력서가 없습니다. 문서 관리에서 먼저 업로드해 주세요.
               </p>
             ) : (
@@ -272,14 +346,14 @@ export default function NewInterviewDialog({
 
           {/* 4. Portfolio */}
           <section className="space-y-2">
-            <label className="text-sm font-medium">
+            <label className="text-base font-medium">
               포트폴리오
-              <span className="ml-1 text-xs text-muted-foreground font-normal">
+              <span className="ml-1 text-sm text-muted-foreground font-normal">
                 (선택)
               </span>
             </label>
             {portfolios.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-2">
+              <p className="text-base text-muted-foreground py-2">
                 저장된 포트폴리오가 없습니다.
               </p>
             ) : (
@@ -292,33 +366,11 @@ export default function NewInterviewDialog({
             )}
           </section>
 
-          {/* 5. GitHub */}
+          {/* 5. Reference link */}
           <section className="space-y-2">
-            <label className="text-sm font-medium">
-              GitHub 링크
-              <span className="ml-1 text-xs text-muted-foreground font-normal">
-                (선택)
-              </span>
-            </label>
-            {githubDocs.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-2">
-                저장된 GitHub 링크가 없습니다.
-              </p>
-            ) : (
-              <MultiCombobox
-                options={githubOptions}
-                value={githubIds}
-                onValueChange={setGithubIds}
-                placeholder="GitHub 링크를 선택하세요"
-              />
-            )}
-          </section>
-
-          {/* 6. Reference link */}
-          <section className="space-y-2">
-            <label className="text-sm font-medium">
+            <label className="text-base font-medium">
               참고 자료
-              <span className="ml-1 text-xs text-muted-foreground font-normal">
+              <span className="ml-1 text-sm text-muted-foreground font-normal">
                 (선택)
               </span>
             </label>

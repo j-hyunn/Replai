@@ -493,7 +493,7 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
         <div className="text-center space-y-2">
           <p className="text-xs font-medium text-muted-foreground tracking-widest uppercase">분석 중</p>
           <p className="text-2xl font-bold">{EVAL_STEPS[evalStepIndex]}</p>
-          <p className="text-sm text-muted-foreground">면접 답변을 바탕으로 피드백 리포트를 만들고 있어요</p>
+          <p className="text-base text-muted-foreground">면접 답변을 바탕으로 피드백 리포트를 만들고 있어요</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -548,7 +548,7 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
 
         <div className="text-center space-y-2">
           <p className="text-xl font-semibold">{current.label}</p>
-          <p className="text-sm text-muted-foreground">{current.desc}</p>
+          <p className="text-base text-muted-foreground">{current.desc}</p>
         </div>
 
         <p className="text-xs italic text-muted-foreground/60 max-w-xs text-center">
@@ -561,7 +561,7 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
   if (analysisError) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4">
-        <p className="text-sm text-destructive">{analysisError}</p>
+        <p className="text-base text-destructive">{analysisError}</p>
         <Button size="sm" variant="outline" onClick={() => { analysisRanRef.current = false; setAnalysisError(null); }}>
           다시 시도
         </Button>

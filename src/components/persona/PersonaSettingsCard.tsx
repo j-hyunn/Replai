@@ -42,7 +42,7 @@ export default function PersonaSettingsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">{label}</CardTitle>
+        <CardTitle className="text-lg">{label}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -51,14 +51,14 @@ export default function PersonaSettingsCard({
           <button
             type="button"
             onClick={() => setShowBuiltIn((v) => !v)}
-            className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
           >
             <span>기본 지침 보기</span>
             {showBuiltIn ? <ChevronUpIcon className="h-3.5 w-3.5" /> : <ChevronDownIcon className="h-3.5 w-3.5" />}
           </button>
           {showBuiltIn && (
             <div className="border-t px-3 py-3">
-              <pre className="whitespace-pre-wrap text-xs text-muted-foreground font-sans leading-relaxed">
+              <pre className="whitespace-pre-wrap text-sm text-muted-foreground font-sans leading-relaxed">
                 {builtInInstructions}
               </pre>
             </div>
@@ -67,9 +67,9 @@ export default function PersonaSettingsCard({
 
         {/* Custom instructions */}
         <div className="space-y-2">
-          <label className="text-sm font-medium">
+          <label className="text-base font-medium">
             추가 지침
-            <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+            <span className="ml-1.5 text-sm font-normal text-muted-foreground">
               기본 지침에 덧붙여 AI 면접관에게 전달됩니다.
             </span>
           </label>

@@ -42,7 +42,7 @@ export default function ProfileSection({ name, email, avatarUrl }: ProfileSectio
 
   return (
     <section className="space-y-4">
-      <h2 className="text-sm font-semibold">프로필</h2>
+      <h2 className="text-xl font-semibold">프로필</h2>
 
       <div className="flex items-center gap-4">
         <Avatar className="h-16 w-16">
@@ -76,7 +76,7 @@ export default function ProfileSection({ name, email, avatarUrl }: ProfileSectio
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">{name}</span>
+              <span className="text-base font-medium">{name}</span>
               <Button
                 variant="ghost"
                 size="icon"
@@ -88,7 +88,7 @@ export default function ProfileSection({ name, email, avatarUrl }: ProfileSectio
               </Button>
             </div>
           )}
-          <p className="text-xs text-muted-foreground">{email}</p>
+          <p className="text-sm text-muted-foreground">{email}</p>
         </div>
       </div>
     </section>

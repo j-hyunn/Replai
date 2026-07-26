@@ -31,8 +31,8 @@ export default async function PersonaPage() {
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-6 space-y-6">
       <div className="space-y-1">
-        <h1 className="text-xl font-semibold">면접관 페르소나</h1>
-        <p className="text-sm text-muted-foreground">
+        <h1 className="text-2xl font-bold">면접관 페르소나</h1>
+        <p className="text-base text-muted-foreground">
           각 면접관 유형에 추가 지침을 작성하면 AI 면접관이 기본 지침과 함께 반영해 면접을 진행합니다.
         </p>
       </div>

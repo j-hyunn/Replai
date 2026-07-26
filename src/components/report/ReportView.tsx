@@ -103,7 +103,7 @@ export default function ReportView({ data, createdAt }: ReportViewProps) {
                     key={item.id}
                     onClick={() => setActiveId(item.id)}
                     className={cn(
-                      "w-full text-left rounded-lg px-2 py-1.5 text-sm transition-colors",
+                      "w-full text-left rounded-lg px-2 py-1.5 text-base transition-colors",
                       activeId === item.id
                         ? "bg-primary/10 text-primary font-medium"
                         : "text-foreground hover:bg-muted"
@@ -176,13 +176,13 @@ function SummaryPanel({ data }: { data: ReportJson }) {
       {/* 종합 평가 */}
       <div className="rounded-xl border px-5 py-4 space-y-2">
         <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">종합 평가</p>
-        <p className="text-sm leading-relaxed">{data.summary}</p>
+        <p className="text-base leading-relaxed">{data.summary}</p>
       </div>
 
       {/* 잘한 점 */}
       <div className="rounded-xl bg-green-50 dark:bg-green-950/30 px-5 py-4 space-y-2">
         <p className="text-[11px] font-medium uppercase tracking-wider text-green-700 dark:text-green-400">잘한 점</p>
-        <p className="text-sm leading-relaxed text-green-900 dark:text-green-100">{data.strengths}</p>
+        <p className="text-base leading-relaxed text-green-900 dark:text-green-100">{data.strengths}</p>
         {data.strength_keywords && data.strength_keywords.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pt-1">
             {data.strength_keywords.map((kw) => (
@@ -200,7 +200,7 @@ function SummaryPanel({ data }: { data: ReportJson }) {
       {/* 개선할 점 */}
       <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 px-5 py-4 space-y-2">
         <p className="text-[11px] font-medium uppercase tracking-wider text-amber-700 dark:text-amber-400">개선할 점</p>
-        <p className="text-sm leading-relaxed text-amber-900 dark:text-amber-100">{data.improvements}</p>
+        <p className="text-base leading-relaxed text-amber-900 dark:text-amber-100">{data.improvements}</p>
         {data.improvement_keywords && data.improvement_keywords.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pt-1">
             {data.improvement_keywords.map((kw) => (
@@ -273,7 +273,7 @@ function AnswerPanel({ answer, index }: AnswerPanelProps) {
       <div>
         <div className="mb-2 space-y-1.5">
           <p className="text-xs text-muted-foreground">Q{index + 1}</p>
-          <h2 className="text-base font-semibold leading-relaxed">{answer.question}</h2>
+          <h2 className="text-lg font-semibold leading-relaxed">{answer.question}</h2>
           {mainIntentChips.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-0.5">
               {mainIntentChips.map((chip, ci) => (
@@ -296,11 +296,11 @@ function AnswerPanel({ answer, index }: AnswerPanelProps) {
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 space-y-3">
                   {mainExchange?.answer ? (
-                    <div className="rounded-lg bg-primary/5 px-3 py-2 text-sm text-muted-foreground leading-relaxed">
+                    <div className="rounded-lg bg-primary/5 px-3 py-2 text-base text-muted-foreground leading-relaxed">
                       {mainExchange.answer}
                     </div>
                   ) : answer.answer ? (
-                    <div className="rounded-lg bg-primary/5 px-3 py-2 text-sm text-muted-foreground leading-relaxed">
+                    <div className="rounded-lg bg-primary/5 px-3 py-2 text-base text-muted-foreground leading-relaxed">
                       {answer.answer}
                     </div>
                   ) : (
@@ -309,7 +309,7 @@ function AnswerPanel({ answer, index }: AnswerPanelProps) {
                   {mainModel && (
                     <div className="space-y-1.5">
                       <p className="text-[11px] font-semibold text-muted-foreground">모범 답안</p>
-                      <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm leading-relaxed text-muted-foreground">
+                      <div className="rounded-lg border bg-muted/40 px-3 py-2 text-base leading-relaxed text-muted-foreground">
                         {mainModel.model_answer}
                       </div>
                     </div>
@@ -325,7 +325,7 @@ function AnswerPanel({ answer, index }: AnswerPanelProps) {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold">피드백</CardTitle>
+            <CardTitle className="text-base font-semibold">피드백</CardTitle>
             <ScoreBadge score={answer.average} />
           </div>
         </CardHeader>
@@ -339,7 +339,7 @@ function AnswerPanel({ answer, index }: AnswerPanelProps) {
             ))}
           </div>
           <Separator />
-          <p className="text-sm leading-relaxed">{answer.feedback}</p>
+          <p className="text-base leading-relaxed">{answer.feedback}</p>
         </CardContent>
       </Card>
 
@@ -353,7 +353,7 @@ function AnswerPanel({ answer, index }: AnswerPanelProps) {
               <div key={i}>
                 <div className="mb-2 space-y-1.5">
                   <p className="text-xs text-muted-foreground">꼬리질문 {i + 1}</p>
-                  <p className="text-sm font-medium leading-snug">{ex.question}</p>
+                  <p className="text-base font-medium leading-snug">{ex.question}</p>
                   {followUpChips.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 pt-0.5">
                       {followUpChips.map((chip, ci) => (
@@ -376,7 +376,7 @@ function AnswerPanel({ answer, index }: AnswerPanelProps) {
                         </AccordionTrigger>
                         <AccordionContent className="px-4 pb-4 space-y-3">
                           {ex.answer ? (
-                            <div className="rounded-lg bg-primary/5 px-3 py-2 text-sm text-muted-foreground leading-relaxed">
+                            <div className="rounded-lg bg-primary/5 px-3 py-2 text-base text-muted-foreground leading-relaxed">
                               {ex.answer}
                             </div>
                           ) : (
@@ -385,7 +385,7 @@ function AnswerPanel({ answer, index }: AnswerPanelProps) {
                           {modelEntry && (
                             <div className="space-y-1.5">
                               <p className="text-[11px] font-semibold text-muted-foreground">모범 답안</p>
-                              <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm leading-relaxed text-muted-foreground">
+                              <div className="rounded-lg border bg-muted/40 px-3 py-2 text-base leading-relaxed text-muted-foreground">
                                 {modelEntry.model_answer}
                               </div>
                             </div>

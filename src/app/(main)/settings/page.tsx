@@ -15,8 +15,8 @@ export default async function SettingsPage() {
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-6 space-y-10">
       <div>
-        <h1 className="text-xl font-semibold">계정 설정</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h1 className="text-2xl font-bold">계정 설정</h1>
+        <p className="text-base text-muted-foreground mt-1">
           계정 정보를 확인하고 관리하세요.
         </p>
       </div>

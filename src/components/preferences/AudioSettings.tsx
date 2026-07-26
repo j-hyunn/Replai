@@ -137,11 +137,11 @@ export default function AudioSettings() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-lg font-semibold flex items-center gap-2">
+        <h2 className="text-xl font-semibold flex items-center gap-2">
           <Mic className="h-5 w-5" />
           음성
         </h2>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-base text-muted-foreground mt-1">
           면접 중 사용할 마이크와 스피커를 설정하세요.
         </p>
       </div>
@@ -149,7 +149,7 @@ export default function AudioSettings() {
       {permissionState === "idle" && (
         <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-4 py-3">
           <Mic className="h-4 w-4 text-muted-foreground shrink-0" />
-          <p className="text-sm text-muted-foreground flex-1">
+          <p className="text-base text-muted-foreground flex-1">
             장치 목록을 불러오려면 마이크 권한이 필요해요.
           </p>
           <Button size="sm" onClick={requestPermission}>
@@ -159,7 +159,7 @@ export default function AudioSettings() {
       )}
 
       {permissionState === "denied" && (
-        <p className="text-sm text-destructive">
+        <p className="text-base text-destructive">
           마이크 권한이 거부됐어요. 브라우저 설정에서 직접 허용해주세요.
         </p>
       )}
@@ -167,7 +167,7 @@ export default function AudioSettings() {
       {/* Device selectors — only shown after permission granted */}
       <div className={`grid grid-cols-2 gap-6 ${permissionState !== "granted" ? "opacity-40 pointer-events-none" : ""}`}>
         <div className="space-y-2">
-          <label className="text-sm font-medium">마이크</label>
+          <label className="text-base font-medium">마이크</label>
           <Select value={selectedMic} onValueChange={setSelectedMic}>
             <SelectTrigger>
               <SelectValue placeholder="마이크 선택" />
@@ -183,7 +183,7 @@ export default function AudioSettings() {
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium">스피커</label>
+          <label className="text-base font-medium">스피커</label>
           <Select value={selectedSpeaker} onValueChange={setSelectedSpeaker}>
             <SelectTrigger>
               <SelectValue placeholder="스피커 선택" />
@@ -202,7 +202,7 @@ export default function AudioSettings() {
       {/* Volume sliders */}
       <div className={`grid grid-cols-2 gap-6 ${permissionState !== "granted" ? "opacity-40 pointer-events-none" : ""}`}>
         <div className="space-y-3">
-          <label className="text-sm font-medium">마이크 음량</label>
+          <label className="text-base font-medium">마이크 음량</label>
           <Slider
             value={micVolume}
             onValueChange={setMicVolume}
@@ -213,7 +213,7 @@ export default function AudioSettings() {
         </div>
 
         <div className="space-y-3">
-          <label className="text-sm font-medium">스피커 음량</label>
+          <label className="text-base font-medium">스피커 음량</label>
           <Slider
             value={speakerVolume}
             onValueChange={setSpeakerVolume}

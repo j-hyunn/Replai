@@ -29,7 +29,7 @@ const navMain = [
         icon: UserIcon,
       },
       {
-        title: "문서 관리",
+        title: "서류 관리",
         href: "/resume",
         icon: FileTextIcon,
       },

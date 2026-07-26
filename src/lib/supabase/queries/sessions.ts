@@ -12,6 +12,7 @@ export interface InterviewSession {
   duration_minutes: number | null
   remaining_seconds: number | null
   resume_ids: string[] | null
+  submitted_resume_id: string | null
   analysis_json: Record<string, unknown> | null
   adk_session_id: string | null
   started_at: string | null
@@ -28,6 +29,7 @@ export interface CreateSessionInput {
   duration_minutes: number
   status?: SessionStatus
   resume_ids?: string[]
+  submitted_resume_id?: string | null
 }
 
 export interface UpdateSessionInput {

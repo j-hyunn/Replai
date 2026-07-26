@@ -91,7 +91,7 @@ export default function ProfileStep({ profile, onNext }: ProfileStepProps) {
     <div className="space-y-8">
       {/* 직군 */}
       <div className="space-y-2">
-        <label className="text-sm font-medium">
+        <label className="text-base font-medium">
           직군 <span className="text-primary">*필수</span>
         </label>
         <Select value={jobCategory} onValueChange={setJobCategory}>
@@ -110,7 +110,7 @@ export default function ProfileStep({ profile, onNext }: ProfileStepProps) {
 
       {/* 연차 */}
       <div className="space-y-2">
-        <label className="text-sm font-medium">
+        <label className="text-base font-medium">
           연차 <span className="text-primary">*필수</span>
         </label>
         <Select value={yearsOfExperience} onValueChange={setYearsOfExperience}>
@@ -129,8 +129,8 @@ export default function ProfileStep({ profile, onNext }: ProfileStepProps) {
 
       {/* 기술 스택 */}
       <div className="space-y-2">
-        <label className="text-sm font-medium">기술 스택</label>
-        <p className="text-xs text-muted-foreground">
+        <label className="text-base font-medium">기술 스택</label>
+        <p className="text-sm text-muted-foreground">
           입력 후 Enter를 눌러 추가하세요.
         </p>
         <div className="flex flex-wrap gap-2 min-h-9 rounded-md border border-input bg-transparent px-3 py-2">
@@ -167,8 +167,8 @@ export default function ProfileStep({ profile, onNext }: ProfileStepProps) {
 
       {/* 스킬 */}
       <div className="space-y-2">
-        <label className="text-sm font-medium">스킬</label>
-        <p className="text-xs text-muted-foreground">
+        <label className="text-base font-medium">스킬</label>
+        <p className="text-sm text-muted-foreground">
           입력 후 Enter를 눌러 추가하세요.
         </p>
         <div className="flex flex-wrap gap-2 min-h-9 rounded-md border border-input bg-transparent px-3 py-2">

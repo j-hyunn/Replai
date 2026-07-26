@@ -101,7 +101,7 @@ export default function ProfileForm({ profile }: Props) {
     <div className="space-y-8">
       {/* 직군 */}
       <div className="space-y-2">
-        <label className="text-sm font-medium">직군</label>
+        <label className="text-base font-medium">직군</label>
         <Select value={jobCategory} onValueChange={setJobCategory}>
           <SelectTrigger className="w-full">
             <SelectValue placeholder="선택해주세요" />
@@ -118,7 +118,7 @@ export default function ProfileForm({ profile }: Props) {
 
       {/* 연차 */}
       <div className="space-y-2">
-        <label className="text-sm font-medium">연차</label>
+        <label className="text-base font-medium">연차</label>
         <Select value={yearsOfExperience} onValueChange={setYearsOfExperience}>
           <SelectTrigger className="w-full">
             <SelectValue placeholder="선택해주세요" />
@@ -135,8 +135,8 @@ export default function ProfileForm({ profile }: Props) {
 
       {/* Hard Skills */}
       <div className="space-y-2">
-        <label className="text-sm font-medium">Hard Skills</label>
-        <p className="text-xs text-muted-foreground">
+        <label className="text-base font-medium">Hard Skills</label>
+        <p className="text-sm text-muted-foreground">
           입력 후 Enter를 눌러 추가하세요.
         </p>
         <div className="flex flex-wrap gap-2 min-h-9 rounded-md border border-input bg-transparent px-3 py-2">
@@ -176,8 +176,8 @@ export default function ProfileForm({ profile }: Props) {
 
       {/* Soft Skills */}
       <div className="space-y-2">
-        <label className="text-sm font-medium">Soft Skills</label>
-        <p className="text-xs text-muted-foreground">
+        <label className="text-base font-medium">Soft Skills</label>
+        <p className="text-sm text-muted-foreground">
           입력 후 Enter를 눌러 추가하세요.
         </p>
         <div className="flex flex-wrap gap-2 min-h-9 rounded-md border border-input bg-transparent px-3 py-2">

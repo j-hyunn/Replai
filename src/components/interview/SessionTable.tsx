@@ -81,7 +81,7 @@ export default function SessionTable({ sessions }: SessionTableProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold">면접 기록</h2>
+        <h2 className="text-xl font-semibold">면접 기록</h2>
         <Button
           variant="ghost"
           size="sm"

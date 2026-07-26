@@ -10,6 +10,7 @@ interface CreateInterviewSessionInput {
   persona: Persona;
   durationMinutes: number;
   resumeIds: string[];
+  submittedResumeId?: string | null;
 }
 
 export async function updateSessionStatusAction(
@@ -70,6 +71,7 @@ export async function createInterviewSessionAction(
       persona: input.persona,
       duration_minutes: input.durationMinutes,
       resume_ids: input.resumeIds,
+      submitted_resume_id: input.submittedResumeId ?? null,
       status: "in_progress",
     });
     return { sessionId: session.id };

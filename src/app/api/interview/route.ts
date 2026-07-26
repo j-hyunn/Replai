@@ -19,8 +19,16 @@ import { generateTtsBase64 } from "@/lib/tts";
 import { buildAnalysisPrompt, type AnalysisOutput, type UserProfileContext } from "@/lib/prompts/analysis";
 import { getUserProfile } from "@/lib/supabase/queries/profiles";
 import { getPersonaSettings } from "@/lib/supabase/queries/personaSettings";
+import { getMasterResume, getSubmittedResume } from "@/lib/supabase/queries/master-resume";
+import { serializeMasterResume } from "@/lib/utils/serializeMasterResume";
 import { buildFirstQuestionPrompt, buildRespondPrompt, buildSkipPrompt, buildHintPrompt } from "@/lib/prompts/interview";
-import { buildEvaluationPrompt } from "@/lib/prompts/evaluation";
+import {
+  buildQuestionEvaluationPrompt,
+  buildSummaryEvaluationPrompt,
+  type QuestionEvaluationResult,
+  type QaGroup,
+  type QaTurn,
+} from "@/lib/prompts/evaluation";
 import { sessionService, interviewRunner, APP_NAME } from "@/lib/agents/runners";
 
 const MODEL = "gemini-2.5-flash";
@@ -127,11 +135,15 @@ export async function POST(req: Request) {
     return new Response("Not Found", { status: 404 });
   }
 
-  // Fetch resume texts, user profile, and persona settings in parallel
-  const [documents, profileData, personaSettings] = await Promise.all([
+  // Fetch resume texts, user profile, persona settings, master resume, and submitted resume in parallel
+  const [documents, profileData, personaSettings, masterResume, submittedResume] = await Promise.all([
     getDocumentsByIds(session.resume_ids ?? []),
     getUserProfile(user.id).catch(() => null),
     getPersonaSettings(user.id).catch(() => []),
+    getMasterResume(user.id).catch(() => null),
+    session.submitted_resume_id
+      ? getSubmittedResume(session.submitted_resume_id).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const currentPersona = (session.persona ?? "explorer") as "explorer" | "pressure" | "technical";
@@ -149,8 +161,21 @@ export async function POST(req: Request) {
       return `[${label}: ${d.file_name ?? d.id}]\n${d.normalized_text ?? d.parsed_text}`;
     });
 
-  // Legacy alias used by prompts — contains all document texts.
-  const resumeTexts = documentSections;
+  // Build resumeTexts with priority: submitted resume > master resume > uploaded documents.
+  // Submitted resume (if any) is placed first so agents treat it as the highest-priority context.
+  const hasMasterResumeContent =
+    masterResume !== null &&
+    (masterResume.experiences.length > 0 || masterResume.projects.length > 0);
+  const baseSections = hasMasterResumeContent
+    ? [`[마스터 이력서]\n${serializeMasterResume(masterResume)}`, ...documentSections]
+    : documentSections;
+  const resumeTexts =
+    submittedResume && submittedResume.content_md
+      ? [
+          `[제출용 이력서 - ${submittedResume.company_name} ${submittedResume.position}]\n${submittedResume.content_md}`,
+          ...baseSections,
+        ]
+      : baseSections;
   const userProfile: UserProfileContext | undefined = profileData
     ? {
         name: profileData.name,
@@ -393,19 +418,7 @@ export async function POST(req: Request) {
     const messages = await getSessionMessages(sessionId);
     const safeAnalysis = analysisJson ?? { analysis: { jd_keywords: [], strengths: [], preferred_gaps: [] }, questions: [] };
 
-    // Group messages by question_id in the route handler (no LLM call needed).
-    // question_id is propagated forward so follow-up turns inherit the parent question.
-    interface QaTurn { speaker: "interviewer" | "user"; content: string }
-    interface QaGroup {
-      question_id: string;
-      question: string;
-      intent: string;
-      good_answer_tips: string;
-      turns: QaTurn[];
-      used_hint: boolean;
-      skipped: boolean;
-    }
-
+    // Group messages by question_id (no LLM call needed).
     let activeQid: string | null = null;
     const groupMap = new Map<string, QaGroup>();
 
@@ -420,7 +433,7 @@ export async function POST(req: Request) {
           question: meta?.question ?? "",
           intent: meta?.intent ?? "",
           good_answer_tips: meta?.good_answer_tips ?? "",
-          turns: [],
+          turns: [] as QaTurn[],
           used_hint: false,
           skipped: false,
         });
@@ -436,30 +449,71 @@ export async function POST(req: Request) {
     }
 
     const qaGroups = Array.from(groupMap.values());
+    const jdKeywords = safeAnalysis.analysis.jd_keywords;
+    const evaluatorUserId = user.id;
 
-    const prompt = buildEvaluationPrompt({
-      qaGroups,
-      analysisJson: safeAnalysis,
-      resumeTexts,
-    });
+    // Stage 1: Evaluate each question group individually (with retry logic).
+    async function evaluateOneGroup(g: QaGroup): Promise<QuestionEvaluationResult> {
+      const prompt = buildQuestionEvaluationPrompt({ qaGroup: g, resumeTexts, jdKeywords });
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const raw = await runOneShot(prompt, "평가를 시작하세요.", evaluatorUserId, apiKey, model);
+          return JSON.parse(extractJson(raw)) as QuestionEvaluationResult;
+        } catch (err) {
+          lastError = err;
+          console.error(`[evaluate] group ${g.question_id} attempt ${attempt + 1} failed:`, err);
+        }
+      }
+      throw lastError;
+    }
 
-    const raw = await runOneShot(prompt, "평가를 시작하세요.", user.id, apiKey, model);
-
-    let reportJson;
+    let questionResults: QuestionEvaluationResult[];
     try {
-      reportJson = JSON.parse(extractJson(raw));
+      questionResults = await Promise.all(qaGroups.map(evaluateOneGroup));
     } catch {
-      return Response.json({ error: "평가 결과 파싱 실패. 다시 시도해주세요." }, { status: 500 });
+      return Response.json({ error: "질문별 평가 실패. 다시 시도해주세요." }, { status: 500 });
     }
 
-    // Merge turns from qaGroups into each answer for display purposes (no extra AI calls).
-    const qaGroupMap = new Map(qaGroups.map((g) => [g.question_id, g]));
-    if (Array.isArray(reportJson.answers)) {
-      reportJson.answers = reportJson.answers.map((a: { question_id: string }) => ({
-        ...a,
-        turns: qaGroupMap.get(a.question_id)?.turns ?? [],
-      }));
+    // Stage 2: Generate overall summary (with retry logic).
+    let summaryResult;
+    let lastSummaryError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const summaryPrompt = buildSummaryEvaluationPrompt({
+          questionResults,
+          analysisJson: safeAnalysis,
+          resumeTexts,
+        });
+        const raw = await runOneShot(summaryPrompt, "종합 평가를 시작하세요.", evaluatorUserId, apiKey, model);
+        summaryResult = JSON.parse(extractJson(raw));
+        break;
+      } catch (err) {
+        lastSummaryError = err;
+        console.error(`[evaluate] summary attempt ${attempt + 1} failed:`, err);
+      }
     }
+    if (!summaryResult) {
+      console.error("[evaluate] summary final error:", lastSummaryError);
+      return Response.json({ error: "종합 평가 실패. 다시 시도해주세요." }, { status: 500 });
+    }
+
+    // Combine stage 1 + stage 2 into EvaluationOutput shape.
+    const qaGroupMap = new Map(qaGroups.map((g) => [g.question_id, g]));
+    const answers = questionResults.map((r) => ({
+      ...r,
+      turns: qaGroupMap.get(r.question_id)?.turns ?? [],
+    }));
+
+    const reportJson = {
+      total_score: summaryResult.total_score as number,
+      summary: summaryResult.summary as string,
+      strengths: summaryResult.strengths as string,
+      strength_keywords: summaryResult.strength_keywords as string[],
+      improvements: summaryResult.improvements as string,
+      improvement_keywords: summaryResult.improvement_keywords as string[],
+      answers,
+    };
 
     const { createClient } = await import("@/lib/supabase/server");
     const supabase = await createClient();
