@@ -14,6 +14,12 @@ import {
   type FilteredContent,
   type RewrittenContent,
 } from "@/lib/prompts/resume-generate";
+import {
+  parseFilteredContent,
+  parseJdAnalysis,
+  parseResumeAnalysis,
+  parseSubmittedResumeContent,
+} from "@/lib/resume/parse";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -68,8 +74,44 @@ async function callGemini(
       return text;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      console.error(`[resume/generate] Gemini call attempt ${attempt} failed:`, lastError.message);
       if (attempt < maxRetries) {
         // Brief pause before retry
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+/**
+ * Calls Gemini and validates the parsed result, retrying on either failure.
+ *
+ * Parsing used to sit outside the retry loop, so a 200 response carrying
+ * malformed JSON — the most common way an LLM stage fails — killed the whole
+ * stage on the first try. Here a bad payload is just another failed attempt.
+ */
+async function callGeminiParsed<T>(
+  apiKey: string,
+  model: string,
+  prompt: string,
+  parse: (raw: unknown) => T,
+  stage: string,
+  maxRetries = 3
+): Promise<T> {
+  let lastError: Error = new Error("Unknown error");
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // One network attempt per outer attempt; callGemini's own retries would
+      // otherwise multiply into 9 requests for a stage.
+      const raw = await callGemini(apiKey, model, prompt, 1);
+      return parse(JSON.parse(extractJson(raw)));
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      console.error(`[resume/generate] ${stage} attempt ${attempt} failed:`, lastError.message);
+      if (attempt < maxRetries) {
         await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
       }
     }
@@ -132,8 +174,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let jdAnalysis: JdAnalysis;
   try {
     const prompt1 = buildJdAnalysisPrompt(company_name.trim(), position.trim(), jd_text.trim());
-    const raw1 = await callGemini(apiKey, model, prompt1);
-    jdAnalysis = JSON.parse(extractJson(raw1)) as JdAnalysis;
+    jdAnalysis = await callGeminiParsed(apiKey, model, prompt1, parseJdAnalysis, "JD analysis");
   } catch {
     return NextResponse.json(
       { error: "JD 분석에 실패했습니다. 잠시 후 다시 시도해주세요." },
@@ -145,8 +186,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let filteredContent: FilteredContent;
   try {
     const prompt2 = buildFilterPrompt(masterResume, jdAnalysis);
-    const raw2 = await callGemini(apiKey, model, prompt2);
-    filteredContent = JSON.parse(extractJson(raw2)) as FilteredContent;
+    filteredContent = await callGeminiParsed(
+      apiKey, model, prompt2, parseFilteredContent, "Resume filtering",
+    );
   } catch {
     return NextResponse.json(
       { error: "이력서 필터링에 실패했습니다. 잠시 후 다시 시도해주세요." },
@@ -158,8 +200,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let rewrittenContent: RewrittenContent;
   try {
     const prompt3 = buildRewritePrompt(masterResume, filteredContent, jdAnalysis, company_name.trim(), position.trim());
-    const raw3 = await callGemini(apiKey, model, prompt3);
-    rewrittenContent = JSON.parse(extractJson(raw3)) as RewrittenContent;
+    rewrittenContent = await callGeminiParsed(
+      apiKey, model, prompt3,
+      (raw) => parseSubmittedResumeContent(raw, "Resume rewrite"),
+      "Resume rewrite",
+    );
   } catch {
     return NextResponse.json(
       { error: "문장 변환에 실패했습니다. 잠시 후 다시 시도해주세요." },
@@ -188,13 +233,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const resumeJsonMatch = rawFinal.match(/---RESUME_JSON---([\s\S]*?)---ANALYSIS---/);
   const analysisMatch = rawFinal.match(/---ANALYSIS---([\s\S]*)$/);
 
-  // Use stage 3 result as canonical content_json; fall back to re-parsing the RESUME_JSON block
+  // Prefer the final RESUME_JSON block, but only if it validates — the stage 3
+  // result already passed the same guard, so falling back to it is always safe.
   let contentJson: SubmittedResumeContent = rewrittenContent;
   if (resumeJsonMatch?.[1]) {
     try {
-      contentJson = JSON.parse(resumeJsonMatch[1].trim()) as SubmittedResumeContent;
-    } catch {
-      // Keep stage 3 result if re-parse fails
+      contentJson = parseSubmittedResumeContent(
+        JSON.parse(extractJson(resumeJsonMatch[1])),
+        "Final resume block",
+      );
+    } catch (err) {
+      console.error(
+        "[resume/generate] final RESUME_JSON block rejected, keeping stage 3 result:",
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 
@@ -206,7 +258,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   if (analysisMatch?.[1]) {
     try {
-      analysisJson = JSON.parse(extractJson(analysisMatch[1])) as ResumeAnalysis;
+      analysisJson = parseResumeAnalysis(JSON.parse(extractJson(analysisMatch[1])));
     } catch {
       // Keep empty analysis if parse fails — not a hard failure
     }
