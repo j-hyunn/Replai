@@ -1,4 +1,18 @@
+# DECISIONS
+
 > 왜 이렇게 만들었는지를 기록한다. 나중에 돌아봤을 때, 또는 v2를 설계할 때 맥락을 잃지 않기 위해.
+>
+> **원본은 Obsidian vault `Micro Projects/Replai/Decisions.md`다.** 이 파일은 그 사본이며,
+> 위키링크만 평문으로 바꿨다. 내용을 고칠 때는 원본을 먼저 고칠 것.
+
+## 관련 문서
+
+Obsidian vault `Micro Projects/Replai/` 에 있다.
+
+- PRD — 기능 명세 (범위·엣지케이스·마일스톤)
+- TRD — 기술 구현 명세 (코드 구조·DB 스키마·보안)
+- Multi Agent Architecture — 에이전트 구조 및 실행 흐름
+- Agents Prompt — 프롬프트 설계 상세
 
 ---
 
@@ -26,6 +40,21 @@
 20. [기술 검증형 페르소나 추가](#20-기술-검증형-페르소나-추가)
 21. [문서 업로드 UX: AddDocumentDialog + 단계별 로딩](#21-문서-업로드-ux-adddocumentdialog--단계별-로딩)
 22. [파일 업로드: Presigned URL 방식 전환 + unpdf 교체](#22-파일-업로드-presigned-url-방식-전환--unpdf-교체)
+23. 서비스명 변경: reHEARsal → Replai
+24. 업로드 응답 경로에서 normalize 분리 (`after()` 백그라운드화)
+25. `parsed_text`만으로 인터뷰 진행 금지 — `ensureNormalizedAction` 가드
+26. Normalize 모델 분리 — `gemini-2.5-flash-lite`
+27. 텍스트 0자 PDF는 업로드 단계에서 명시적 거부
+28. `interview_messages.kind` 컬럼 도입 — 텍스트 마커 대체
+29. 힌트 점수 캡 하향: 40점 → 30점, 서버 강제 적용
+30. 평가 파이프라인 전면 재설계: 단건 병렬 + 런타임 검증 + 서버 후처리
+31. 단건 재평가 API — **미구현**
+32. Git 링크 입력 기능 제거 — v4.0
+33. 마스터 이력서 / 제출용 이력서 2-테이블 분리 — v4.0
+34. 이력서 생성 4단계 파이프라인 분할 — v4.0
+35. 마스터 이력서 에디터로 tiptap 채택 — v4.0
+36. 제출용 이력서 저장 형식: `content_md` → `content_json` — v4.0
+37. 평가 타임아웃: 예산(budget) 기반 제어 — v4.0
 
 ---
 
@@ -85,6 +114,9 @@
 ---
 
 ## 4. ADK 적용 범위: 면접관 에이전트만
+
+> 📎 현재 에이전트 실행 구조 전체는 Multi Agent Architecture 참고.
+
 
 **결정 (최초)**: 3개 에이전트를 Google ADK의 SequentialAgent로 오케스트레이션한다
 
@@ -201,9 +233,14 @@
 
 - README 파싱 → 커밋 패턴 분석 → 주요 파일 구조 분석 순으로 확장
 
+> **폐기 (2026-07-26, v4.0):** Git 링크 입력 기능 자체가 제거되었다. 사유는 #32 참조.
+
 ---
 
 ## 11. BYOK: Gemini 전용, ADK 유지
+
+> 📎 BYOK 구현 명세(crypto.ts·ai-config.ts·user_api_settings)는 TRD 섹션 6 참고.
+
 
 **결정** (2026-04-01): 멀티 프로바이더(OpenAI·Claude 포함) 대신 **Gemini BYOK만** 지원한다. ADK는 그대로 유지한다.
 
@@ -487,7 +524,7 @@ Google login → auth callback
 ResumePageHeader (헤더 오른쪽 "문서 추가" 버튼)
   → AddDocumentDialog (이력서 여러 파일 + 포트폴리오 여러 파일 + GitHub URL 다수)
     → 제출 시 단계별 진행 오버레이
-       - 문서별 0→100% 진행바 (400ms interval, 감속형)
+       - 문서별 0→100% 진행바 (400ms interval, 감속형)   ← v3.4에서 폐기 (아래 주석)
        - 완료 단계: 체크 아이콘 + 연한 primary 배경
        - 진행 단계: 스피너 + primary 배경
     → 모두 완료 시 revalidateDocumentsAction() → 페이지 갱신
@@ -505,6 +542,10 @@ ResumePageHeader (헤더 오른쪽 "문서 추가" 버튼)
 - 개별 업로드 시 `{ skipRevalidate: true }` 전달 → `revalidatePath` 미호출
 - 전체 완료 후 `revalidateDocumentsAction()` 1회 호출로 일괄 갱신
 - 이 패턴 없으면 취소 후에도 revalidation이 완료되어 문서 카드가 나타남
+
+**후속 변경 (2026-05-17, v3.4):** 가짜 진행바(0→100% 감속형)는 제거되었다. normalize가 `after()`로 백그라운드화되면서 업로드 응답이 ~5초로 짧아져, 진행률을 흉내 낼 이유가 사라졌다. 현재는 단계 라벨(`uploading` → `processing` → `done`/`error`)만 표시한다.
+
+**후속 변경 (2026-07-26, v4.0):** GitHub URL 입력이 다이얼로그에서 제거되었다 (#32 참조). 현재 `AddDocumentDialog`는 이력서·포트폴리오 PDF만 다룬다.
 
 ---
 
@@ -562,3 +603,379 @@ ResumePageHeader (헤더 오른쪽 "문서 추가" 버튼)
 ---
 
 *이 문서는 결정이 바뀔 때마다 업데이트한다. 날짜와 이유를 항상 함께 기록한다.*
+
+## 23. 서비스명 변경: reHEARsal → Replai
+
+**결정** (2026-04-16): 프로젝트명을 **reHEARsal**에서 **Replai**로 변경한다.
+
+**이유**
+
+- 동일한 서비스명(reHEARsal)과 도메인이 이미 존재하는 것을 확인
+- 브랜드 차별화 및 도메인 충돌 방지를 위해 조기 변경 결정
+
+**새 이름 의미**
+
+> **Replai**
+>
+> - **Re** + **Play** = 면접을 다시 재생하고 연습한다
+> - **Replay** + **AI** = AI와 함께 나의 면접을 반복 재생하며 성장한다
+> - 리플레이처럼 다시 보고, 다시 말하고, 다시 완성한다
+
+**변경 범위**
+
+- [ ] PRD.md 섹션 1.2, 1.3 업데이트 (리허설 → Replai)
+- [ ] Agents Prompt.md 섹션 개요 업데이트 (리허설의 → Replai의)
+- [ ] Obsidian vault 폴더명 reHEARsal → Replai (수동 변경 필요)
+- [ ] package.json name 필드
+- [ ] README.md
+- [ ] 메타태그 / og:title / 페이지 타이틀
+- [ ] Supabase 프로젝트 표시명
+- [ ] Vercel 프로젝트명
+- [ ] 도메인 확보 (replai.io / replai.app / replai.kr 가용 여부 확인)
+
+
+
+---
+
+## 24. 업로드 응답 경로에서 normalize 분리 (after()로 백그라운드화)
+
+**결정** (2026-05-17): `processUploadedDocumentAction`이 Gemini normalize를 동기로 호출하던 것을 Next.js `after()` 콜백으로 옮긴다. 업로드 응답은 `parsed_text` 저장 직후 반환.
+
+**배경**
+- 큰 포트폴리오(16K자+)는 normalize 응답이 30~60초 → Vercel function 60s 한도 또는 클라이언트 체감 timeout으로 자주 실패
+- AbortError → `parsed_text=""` 폴백으로 문서는 저장됐지만 normalized_text가 빈 채로 인터뷰에 흘러감
+- 사용자 보고: "업로드 시간이 너무 오래걸려서 업로드에 실패하는 케이스가 생긴다"
+
+**구현**
+- 응답 직후 `after(async () => runNormalize → updateNormalized)` 비동기 실행
+- `normalize_status` 컬럼 (pending/done/failed)으로 진행 상태 추적
+- 인터뷰 시작 시 `ensureNormalizedAction`이 동기 보장 (§25 참조)
+
+**대안 검토**
+- **폴링 + 폴백**: 결국 인터뷰 시작 시 사용자가 기다리는 것은 동일. 채택 안 함.
+- **Supabase Edge Function**: 혁신 토큰 소비 + 디버깅 어려움. 현재 단계에서 과함. v2 검토.
+- **큰 텍스트 청크 분할**: 복잡도 증가, MVP에서 보류. v2 후보.
+- **모델 lite 교체만**: 일부 케이스는 해결되지만 응답이 30~40s대라 여전히 업로드 다이얼로그가 멈춤 → 응답 분리가 본질적 해결.
+
+---
+
+## 25. parsed_text만으로 인터뷰 진행 금지 — `ensureNormalizedAction` 가드
+
+**결정** (2026-05-17): 인터뷰 route에 `d.normalized_text ?? d.parsed_text` graceful fallback이 있지만 사용하지 않는다. `NewInterviewDialog.handleStart()`에서 선택된 모든 문서가 `normalize_status === 'done'`이 되도록 보장한 뒤 세션을 생성한다.
+
+**이유**
+- `parsed_text`는 PDF raw 추출 — 양식 깨짐, 헤더/푸터 노이즈 포함 → analysis_agent 입력 품질이 낮음
+- 빠른 사용자(업로드 직후 시작)가 raw text로 인터뷰하는 케이스를 명시적으로 차단해야 함
+- 사용자 명시 요구: "normalized text 없이 parsed text로만 인터뷰를 진행하게 하고 싶지 않다"
+
+**보장 메커니즘**
+- 시작 버튼 클릭 → "AI 분석 마무리 중..." stage UI → 동기 normalize (최대 55s/문서) → done 보장 후 세션 진입
+- failed로 끝나면 명시적 에러 토스트 + 다이얼로그 유지 (사용자가 문서 제외 또는 카드에서 재시도)
+
+**시간 분배 설계 — 베팅**
+- 사용자가 setup 페이지에서 보내는 30~60초 동안 백그라운드 normalize가 대부분 끝남
+- 빠른 사용자만 시작 시점에서 잠깐 기다림
+- 업로드 다이얼로그가 30~60초 멈춰있는 것보다 "AI 분석 마무리 중" 명시적 UI가 UX 우위
+
+---
+
+## 26. Normalize 모델 분리 — `gemini-2.5-flash-lite`
+
+**결정** (2026-05-17): 면접/평가/분석 에이전트는 `gemini-2.5-flash` 유지, normalize만 `gemini-2.5-flash-lite`로 분리.
+
+**배경**
+- 16K자 포트폴리오 → flash 응답 시간 45s+ → AbortController abort
+- normalize prompt가 "원문 그대로 정제만" 방식이라 input ≈ output 토큰 수 → 응답 시간이 길어짐
+
+**선택 이유**
+- flash-lite latency 1/2~1/3 수준 — 같은 입력도 ~20s 안에 응답
+- Normalize는 텍스트 재구성(노이즈 제거, 줄바꿈 복원, 헤딩 부여) 작업 — lite 품질로 충분
+- timeout 45s → 55s 조정 (Vercel maxDuration 60s 안에서 마진 5초)
+- 상수 `NORMALIZE_MODEL`로 한 곳에서 관리
+
+**모니터링 포인트**
+- lite로도 timeout나는 케이스 누적 시:
+  - prompt를 요약형으로 변경 (input ≈ output 제약 해제)
+  - 청크 분할 도입
+  - maxDuration 90s + Vercel Pro 검토
+
+---
+
+## 27. 텍스트 0자 PDF는 업로드 단계에서 명시적 거부
+
+**결정** (2026-05-17): unpdf 추출 결과 `parsed_text === ""`이면 Storage 파일 즉시 정리 + 사용자에게 "PDF에서 텍스트를 추출할 수 없습니다. 스캔본/이미지 PDF는 지원하지 않습니다. 다른 파일을 업로드해주세요" 에러 반환.
+
+**배경**
+- 이전 동작: `parsed_text=""` 그대로 DB 저장 → 인터뷰에서 빈 텍스트 흘러감 (graceful fallback 가짜 통과)
+- 사용자 입장에선 업로드 성공으로 보이지만 실제로는 인터뷰에서 쓸 수 없는 상태
+- 디버깅 시 unpdf 미설치(lockfile sync 문제) 때문에 모든 PDF가 0자 추출되는 케이스 발견 → 이 가드가 문제를 "표면화"시켜 환경 문제를 빨리 잡을 수 있었음
+
+**거부 대상**
+- 스캔본/이미지 PDF (OCR 없이는 텍스트 없음)
+- 폰트 outline 처리된 디자이너 포트폴리오 (Figma/InDesign export 시 흔함)
+- ToUnicode CMap 누락 PDF (드물지만 발생)
+
+**예외 — Git 링크**
+- README fetch 실패해도 URL은 저장 진행 (사용자가 명시적으로 입력했으므로). `normalize_status`만 `'failed'`로 표기해 카드에서 재시도 가능하게.
+
+**v2 고려 사항**
+- 텍스트 드래그 가능한데 unpdf만 못 뽑는 케이스 → `pdfjs-dist` 직접 호출 fallback 추가 검토 (unpdf는 pdfjs-dist 래퍼지만 옵션 제한적)
+- 스캔본은 OCR 별도 처리 (Tesseract 또는 Gemini Vision)
+
+
+---
+
+## 28. interview_messages.kind 컬럼 도입 — 텍스트 마커 시스템 대체
+
+**결정** (2026-05-20): `[모범 답안]`, `[질문 건너뛰기]` 텍스트 마커를 `interview_messages.kind` 컬럼으로 대체한다.
+
+**기존 방식의 문제**
+
+- 힌트 사용 여부와 건너뛰기 여부가 메시지 `content` 필드의 접두사 마커로 저장됨
+- 마커 파싱이 문자열 비교에 의존해 LLM 출력 변동·공백 차이에 취약
+- 평가 시점에 메시지 배열을 다시 스캔해 마커를 파싱해야 해서 로직이 분산됨
+
+**결정 이유**
+
+- `kind: 'answer' | 'hint_shown' | 'skipped' | 'interviewer'` 열거형으로 의미를 일급 데이터로 저장
+- DB 쿼리 레벨에서 `WHERE kind = 'skipped'` 필터 가능 — 코드 파싱 불필요
+- 기존 마커(`[모범 답안]`, `[질문 건너뛰기]`)는 마이그레이션에서 백필 후 평가 코드에서 제거
+
+**마이그레이션**
+
+- `20260519000001_add_message_kind.sql` — `interview_messages.kind` 컬럼 추가 + 기존 마커 백필 + NOT NULL 제약
+
+---
+
+## 29. 힌트 점수 캡 하향: 40점 → 30점, 서버 강제 적용
+
+**결정** (2026-05-20): 힌트 사용 답변의 각 항목 점수 상한을 최대 30점으로 하향 조정한다. 서버에서 무조건 강제 적용한다.
+
+**이유**
+
+- 기존 40점 캡은 힌트를 적극 활용해도 합격 점수대에 근접 가능해 의존 유인이 컸음
+- 30점 캡은 실력 기반 점수(평균 60~80점)와 명확한 차이를 만들어 힌트 사용이 성적에 유의미한 영향을 줌
+- LLM 프롬프트에 30점 캡을 명시해도 이를 무시하는 prompt drift 관측 → 서버 후처리 강제 적용으로 신뢰성 100% 확보
+- `applyHintCap()`이 cap 초과 시 `console.warn`으로 prompt drift 경보 발생
+
+**구현**
+
+- `HINT_SCORE_CAP = 30` 상수 (`src/lib/evaluation/postprocess.ts`)
+- `applyHintCap()`: 각 항목별 `Math.min(score, 30)` + `average` 재산출
+- LLM 초과 감지: `console.warn("[applyHintCap] LLM exceeded hint cap — prompt drift?")`
+
+---
+
+## 30. 평가 파이프라인 전면 재설계: 단건 병렬 + Zod + 서버 후처리
+
+**결정** (2026-05-20): 일괄 평가(질문 n개를 한 번 호출)에서 질문별 단건 호출 병렬 실행으로 전환한다. Zod 스키마 검증과 서버 후처리 산술을 추가한다.
+
+**기존 방식의 문제**
+
+- 일괄 호출: LLM이 일부 질문 답변을 누락해도 silent loss 발생 (누락 감지 불가)
+- LLM이 계산한 `average`와 실제 산술 평균이 1~3점씩 drift
+- 구조화 출력 없이 raw JSON parse → 필드 누락·타입 오류 시 전체 파이프라인 실패
+
+**채택한 설계**
+
+- 질문별 단건 Gemini 호출 → 동시성 4로 제한한 병렬 실행
+- 응답은 런타임 타입 가드로 검증 → 실패 시 재시도 대상으로 처리
+- 실패 시 최대 3회 재시도
+- 서버에서 `average` 재산출 (`Math.round((logic + specificity + job_fit) / 3)`)
+- `total_score` = skipped·failed 제외 평균 — LLM 계산 불신
+- 불복구 실패 시 throw 대신 `failed` AnswerFinal 반환 → UI에서 재평가 버튼으로 처리
+
+**트레이드오프**
+
+- API 호출 횟수 증가 (1회 → n회) — 동시성 4로 상쇄, 총 응답 시간은 유사
+- LLM 산술 신뢰 불가 판단 → 서버 계산 도입으로 일관성 확보
+- 단건 재평가 API와 자연스럽게 결합 (동일 `evaluateAnswer` 함수 재사용)
+
+**구현 파일**
+
+- `src/lib/evaluation/parse.ts` — 런타임 타입 가드 + `InvalidEvaluationError`
+- `src/lib/evaluation/concurrency.ts` — `mapWithConcurrency` (자체 구현)
+- `src/lib/evaluation/postprocess.ts` — 서버 후처리 산술
+- `src/lib/utils/withDeadline.ts` — 호출별 대기 상한
+- `src/lib/prompts/evaluation.ts` — 단건·요약·건너뛰기 프롬프트
+- 호출·재시도 오케스트레이션은 `src/app/api/interview/route.ts`에 인라인
+
+> **정정 (2026-07-30):** 이 결정을 처음 기록할 때 Zod 스키마(`schema.ts`), `p-limit`, Gemini structured output(`responseSchema`), 별도 `run.ts`를 채택한 것으로 적었으나 **실제로 구현된 것은 위 구성이다.** 외부 의존성(zod·p-limit) 없이 수동 타입 가드와 자체 동시성 유틸을 썼고, structured output도 사용하지 않는다. 설계 의도(누락 방지·서버 산술·재시도)는 그대로 달성됐으나 수단이 다르다.
+
+---
+
+## 31. 단건 재평가 API — 미구현
+
+> **상태 (2026-07-30): 결정만 있고 구현되지 않았다.** `/api/interview`의 `type` 분기는 `analyze` / `respond` / `hint` / `skip` / `evaluate` 5종뿐이며 `reevaluate`는 없다.
+> 게다가 리포트 UI가 `AnswerStatus`를 읽지 않아 `failed` 카드 자체가 화면에 나타나지 않는다. 즉 재평가 버튼을 붙일 진입점도 없는 상태다. **두 작업은 한 세트로 처리해야 한다.**
+> 아래는 원래의 결정 기록이며, 구현 시 그대로 따르면 된다.
+
+**결정** (2026-05-20): 평가 실패 답변을 재시도할 수 있는 단건 재평가 엔드포인트를 추가한다.
+
+**결정 이유**
+
+- 일괄 평가 시대에는 전체 재평가만 가능했고, 일부 질문 실패 시 사용자가 전체 면접을 다시 해야 했음
+- 단건 호출 파이프라인으로 전환 후 `evaluateAnswer()`가 질문 단위로 독립 실행 가능 → 단건 재평가가 자연스럽게 구현 가능
+- 평가 실패는 일시적 Gemini 장애가 원인인 경우가 많아, 재시도 한 번으로 해결 가능
+
+**API 명세**
+
+```
+POST /api/interview
+{
+  type: "reevaluate",
+  sessionId: string,
+  questionId: string
+}
+```
+
+- 인증: 세션 소유권 검증 (`session.user_id === user.id`)
+- 동작: 해당 `question_id`의 QaGroup 재구성 → `evaluateAnswer()` 실행 → 리포트의 해당 인덱스 교체 → `upsert` 저장
+- 성공 시: 업데이트된 리포트 반환 (클라이언트에서 해당 카드만 교체)
+- 실패 시: 기존 `failed` 상태 유지 (리포트 변경 없음)
+
+**트레이드오프**
+
+- 재평가 중 더블 클릭/다중 탭 동시 요청 시 race condition 가능성 — 구현 시 `If-Match` 헤더 또는 클라이언트 락 필요
+
+---
+
+## 32. Git 링크 입력 기능 제거
+
+**결정** (2026-07-26): 이력서 문서 종류에서 GitHub 링크를 제거한다. `GitLinkSection.tsx` 삭제, `saveGitLinkAction` 제거, 온보딩·`/resume`에서 입력 UI 제거.
+
+**이유**
+
+- README fetch만으로는 면접 컨텍스트 기여가 미미했다. 대부분의 README는 프로젝트 설치법·사용법이라 지원자의 역할·의사결정·성과가 드러나지 않는다
+- 코드/커밋 분석(#10의 v2 방향)은 여전히 비용이 크고, 그 없이는 URL 한 줄이 컨텍스트에 주는 값이 사실상 0에 가까웠다
+- 마스터 이력서(#33)가 도입되면서 프로젝트 정보를 구조화해 직접 입력받는 경로가 생겼다. Git README의 역할을 마스터 이력서의 프로젝트 섹션이 더 정확하게 대체한다
+- `type: 'git'` 문서는 `parsed_text`가 비어 있어 문서 텍스트로 활용 불가했고, normalize 상태 관리에서만 예외 케이스를 늘리고 있었다
+
+**남은 잔재 (정리 필요)**
+
+- `DocumentType`에 `'git'`, `MAX_SIZE_BYTES.git = 0`, `upsertGitDocument()`가 남아 있으나 호출부가 없다 (dead code)
+- 기존 사용자의 `type='git'` 행은 DB에 남아 있다. 마이그레이션으로 정리하지 않았다
+
+---
+
+## 33. 마스터 이력서 / 제출용 이력서 2-테이블 분리
+
+**결정** (2026-07-26): 이력서를 **마스터 이력서**(유저당 1개, 모든 경험의 원본)와 **제출용 이력서**(JD별 N개, AI 생성물)로 분리해 별도 테이블로 저장한다.
+
+**이유**
+
+- 두 데이터의 수명주기가 완전히 다르다. 마스터는 계속 갱신되는 자산이고, 제출용은 특정 JD에 대한 스냅샷이라 생성 후 불변에 가깝다
+- 한 테이블에 `is_master` 플래그로 두면 "마스터를 수정했을 때 기존 제출용도 바뀌어야 하는가"라는 답 없는 질문이 생긴다. 분리하면 **제출 시점의 이력서가 그대로 보존**된다 — 면접 준비에는 이 쪽이 맞다
+- 제출용에만 필요한 필드(`company_name`, `position`, `jd_text`, `analysis_json`)가 마스터 행에서 항상 null로 남는 낭비도 피한다
+
+**JSONB 단일 테이블을 택한 이유 (섹션별 정규화 대신)**
+
+- 경력·프로젝트·학력을 각각 테이블로 쪼개면 조인 5~6개가 필요한데, 읽기 패턴이 **항상 전체 조회**다. 부분 조회 요구가 없다
+- 폼 전체를 한 번에 저장하는 UX라 부분 업데이트도 불필요하다 — `upsert` 한 번으로 끝난다
+- 스키마 변경이 잦은 초기 단계에서 마이그레이션 비용이 훨씬 낮다
+- 트레이드오프: DB 레벨 제약이 없어 잘못된 구조가 들어가도 막지 못한다. 실제로 #36의 `summary` 위치 문제가 이 때문에 발생했다
+
+---
+
+## 34. 이력서 생성 4단계 파이프라인 분할
+
+**결정** (2026-07-26): JD 맞춤 이력서 생성을 한 번의 LLM 호출이 아니라 4단계 순차 호출로 나눈다.
+
+```
+1단계  JD 분석 + 전략 수립   → 포지션 페르소나, 3대 핵심 역량, ATS 키워드
+2단계  마스터 이력서 필터링   → 선별된 항목의 id 목록 + 우선순위
+3단계  개조식 재작성         → 텍스트 필드만 제출용 문장으로 변환
+4단계  분석 생성             → 키워드 매핑 / 강조 포인트 / 부족 항목
+```
+
+**이유**
+
+- 한 번에 시키면 **선별과 문체 변환이 섞여 선별 기준이 무너진다.** "JD에 안 맞는 프로젝트를 빼라"와 "문장을 개조식으로 바꿔라"를 동시에 주면 모델이 둘 다 어중간하게 수행한다
+- 1단계에서 전략(핵심 역량 3가지)을 **먼저 고정**해야 2·3단계가 같은 기준으로 판단한다. 전략을 매번 암묵적으로 재추론하면 단계마다 다른 기준이 적용된다
+- 2단계를 id 선별만 하게 제한하면 출력이 짧아져 실패 확률이 낮고, 검증도 쉽다 (id 존재 여부만 확인하면 됨)
+- 단계별로 실패 지점이 분리돼 사용자에게 "JD 분석 실패" / "문장 변환 실패"처럼 구체적으로 안내할 수 있다
+
+**트레이드오프**
+
+- 호출 4회 순차 → 생성 1건에 수십 초. `maxDuration = 300`으로 대응했으나 이 값의 실제 적용 여부는 미확인 (#37)
+- 비용도 4배. BYOK 유도 또는 생성 횟수 제한이 BM 검토 대상
+- 병렬화 불가 — 각 단계가 이전 단계 출력에 의존한다. 단축하려면 단계를 병합해야 하는데 그러면 위 이유가 무너진다
+
+**보조 장치**
+
+- 2단계 입력에서 `description`·`achievement`를 앞 200자로 잘라 토큰 절약
+- 4단계는 이력서를 다시 만들지 않고 3단계 결과를 그대로 되돌려받는다. `RESUME_JSON` 블록 파싱이 실패하면 3단계 결과를 canonical로 사용 — **이 파이프라인의 유일한 폴백**
+
+---
+
+## 35. 마스터 이력서 에디터로 tiptap 채택
+
+**결정** (2026-07-26): 마스터 이력서의 서술형 필드(업무 내용, 프로젝트 설명, 성과 등)에 tiptap 기반 마크다운 에디터를 사용한다.
+
+**이유**
+
+- 이력서 본문은 불릿 리스트가 기본 형태인데, plain textarea에서는 사용자가 `- `를 직접 타이핑해야 하고 렌더 결과를 볼 수 없다
+- 저장 형식은 마크다운이어야 한다 — LLM 프롬프트에 그대로 넣고, 제출용 이력서 뷰어에서 렌더하기 위함. `tiptap-markdown`이 에디터 상태 ↔ 마크다운 변환을 담당한다
+- 리치 텍스트를 HTML로 저장하면 프롬프트에 태그가 섞여 토큰을 낭비하고 LLM이 오독한다
+
+**선택하지 않은 대안**
+
+- plain textarea + 마크다운 미리보기 분리: 구현은 간단하나 긴 이력서 작성 시 입력·확인 왕복이 번거롭다
+- 리치 텍스트 에디터(HTML 저장): 위 이유로 부적합
+
+**트레이드오프**
+
+- 의존성 4개 추가 (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-placeholder`, `tiptap-markdown`)
+- 번들 크기 증가. 마스터 이력서 편집 화면에서만 쓰이므로 라우트 단위로 격리돼 있다
+
+---
+
+## 36. 제출용 이력서 저장 형식: `content_md` → `content_json`
+
+**결정** (2026-07-26 도입, 2026-07-30 보완): 제출용 이력서를 마크다운 문자열이 아니라 마스터 이력서와 **동일한 구조화 JSON**으로 저장한다.
+
+**배경**
+
+최초 구현은 LLM이 마크다운 이력서를 통째로 생성해 `content_md`에 저장하는 방식이었다. 문제:
+
+- 뷰어가 마크다운을 그대로 렌더하니 이력서다운 레이아웃이 나오지 않았다. 특히 "경력 하위에 그 회사에서 한 프로젝트를 넣는" 표준 이력서 위계를 마크다운으로는 강제할 수 없었다
+- 필드 단위 접근이 불가능해 부분 수정·재생성이 어렵다
+
+**결정**
+
+- `content_json` 컬럼 신설(`20260616000001`). 마스터 이력서와 같은 스키마 + JD 맞춤 `summary`
+- 뷰어가 JSON을 읽어 표준 레이아웃으로 렌더 — 경력 하위에 같은 회사 프로젝트를 통합하고, 매칭되지 않는 프로젝트는 "기타 프로젝트"로 분리
+- `content_md`는 레거시 행 호환용으로 남기고 신규 생성 시 빈 문자열
+
+**후속 사고 (2026-07-30 수정)**
+
+이 전환 과정에서 **제출용 이력서가 면접 컨텍스트에 전혀 주입되지 않는 버그**가 있었다. 생성기는 `content_md: ""`로 저장하는데 면접 라우트는 `content_md`가 truthy할 때만 주입해, 조건이 항상 false였다. 제출용 이력서를 선택해도 분석·질문 생성·면접·평가 어디에도 반영되지 않았다.
+
+- 수정: `serializeSubmittedResume()` 추가, `content_json` 우선 → `content_md` 폴백
+- 교훈: **컬럼을 전환할 때 그 컬럼을 읽는 쪽을 전수 확인해야 한다.** 쓰기만 바꾸면 조용히 죽는다
+
+**남은 문제 — 스키마 미강제**
+
+`content_json`은 LLM 출력을 그대로 저장하므로 구조가 보장되지 않는다. 실제로 JD 맞춤 요약이 최상위 `summary`가 아니라 `basics.summary`에 들어가는 경우가 관측됐다. 현재는 뷰어·직렬화 모두 **최상위 → basics 순 폴백**으로 읽고, `SubmittedResumeContent.summary`를 optional로 선언해 타입을 실제와 맞췄다. 근본 해결은 저장 전 스키마 검증 도입이다.
+
+---
+
+## 37. 평가 타임아웃: 예산(budget) 기반 제어
+
+**결정** (2026-07-30): 평가 호출에 개별 타임아웃만 두지 않고, **핸들러 전체의 wall-clock 예산**을 함께 관리한다.
+
+|상수|값|의미|
+|---|---|---|
+|`EVAL_CONCURRENCY`|4|동시 실행 상한|
+|`ONESHOT_TIMEOUT_MS`|45,000|호출 1회 대기 상한|
+|`EVAL_BUDGET_MS`|240,000|evaluate 핸들러 전체 예산|
+
+**이유**
+
+- 호출별 타임아웃만 있으면, 질문이 많고 재시도가 겹칠 때 총 소요가 함수 한도를 넘어 **리포트 저장 직전에 플랫폼이 요청을 죽인다.** 그러면 평가 결과가 통째로 사라진다
+- 호출별 상한을 `Math.min(45s, 남은 예산)`으로 잡으면 재시도가 예산을 넘지 못한다
+- 예산이 소진되면 남은 질문은 재시도 없이 `failed` 카드로 degrade한다. **부분 리포트가 무(無) 리포트보다 낫다** — 평가 실패는 면접 자체를 무효화하지 않기 때문이다 (#3의 "폴백 없음" 원칙이 적용되지 않는 유일한 영역)
+
+**한계**
+
+`withDeadline`은 **호출자의 대기 시간만** 끊는다. ADK Runner가 AbortSignal을 노출하지 않아 타임아웃된 Gemini 호출은 자체 종료되거나 함수가 내려갈 때까지 계속 실행된다. 그래도 둘 이유가 있다 — 응답 없는 호출 하나가 리포트 전체를 막는 것보다 낫다.
