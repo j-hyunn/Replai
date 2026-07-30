@@ -113,6 +113,38 @@ describe("buildSkippedAnswer", () => {
     expect(result.status).toBe("skipped");
     expect(result.question_id).toBe("q3");
   });
+
+  it("keeps the generated model answer and intent when provided", () => {
+    const result = buildSkippedAnswer({
+      question_id: "q3",
+      question: "왜 이직하시나요?",
+      intent: ["동기 확인"],
+      model_answers: [{ question: "왜 이직하시나요?", model_answer: "제가 맡았던..." }],
+    });
+    expect(result.intent).toEqual(["동기 확인"]);
+    expect(result.model_answers[0].model_answer).toBe("제가 맡았던...");
+    // Scores stay deterministic even when a model answer was generated.
+    expect(result.average).toBe(0);
+    expect(result.status).toBe("skipped");
+  });
+
+  it("falls back to a placeholder model answer when generation failed", () => {
+    const result = buildSkippedAnswer({ question_id: "q3", question: "왜 이직하시나요?" });
+    expect(result.model_answers).toHaveLength(1);
+    expect(result.model_answers[0].model_answer).toContain("건너뛰어");
+    expect(result.intent).toEqual(["건너뜀"]);
+  });
+
+  it("treats empty arrays the same as omitted ones", () => {
+    const result = buildSkippedAnswer({
+      question_id: "q3",
+      question: "왜 이직하시나요?",
+      intent: [],
+      model_answers: [],
+    });
+    expect(result.intent).toEqual(["건너뜀"]);
+    expect(result.model_answers).toHaveLength(1);
+  });
 });
 
 describe("buildFailedAnswer", () => {

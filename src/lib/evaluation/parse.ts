@@ -1,4 +1,7 @@
-import type { QuestionEvaluationResult } from "@/lib/prompts/evaluation";
+import type {
+  QuestionEvaluationResult,
+  SkippedModelAnswerResult,
+} from "@/lib/prompts/evaluation";
 
 // Runtime validation for LLM evaluation output. The model is asked for a
 // fixed JSON shape but occasionally omits fields or returns strings where
@@ -72,6 +75,35 @@ export function parseQuestionEvaluation(
     average: typeof r.average === "number" ? Math.round(r.average) : 0,
     intent: isStringArray(r.intent) ? r.intent : [],
     feedback: r.feedback,
+    model_answers: modelAnswers,
+  };
+}
+
+// The skipped-question prompt returns only intent + one model answer, so it
+// gets its own narrower guard rather than reusing the scored one.
+export function parseSkippedModelAnswer(raw: unknown): SkippedModelAnswerResult {
+  if (typeof raw !== "object" || raw === null) {
+    throw new InvalidEvaluationError("response is not an object");
+  }
+  const r = raw as Record<string, unknown>;
+
+  const modelAnswers = Array.isArray(r.model_answers)
+    ? r.model_answers.filter(
+        (m): m is { question: string; model_answer: string } =>
+          typeof m === "object" &&
+          m !== null &&
+          typeof (m as Record<string, unknown>).question === "string" &&
+          typeof (m as Record<string, unknown>).model_answer === "string" &&
+          (m as Record<string, unknown>).model_answer !== "",
+      )
+    : [];
+
+  if (modelAnswers.length === 0) {
+    throw new InvalidEvaluationError("no usable model_answers returned");
+  }
+
+  return {
+    intent: isStringArray(r.intent) ? r.intent : [],
     model_answers: modelAnswers,
   };
 }

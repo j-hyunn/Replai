@@ -18,20 +18,38 @@ function averageOf(scores: QuestionEvaluationResult["scores"]): number {
 export interface BuildSkippedInput {
   question_id: string;
   question: string;
+  // Produced by the skipped-question model-answer call. Omitted when that
+  // call was not made or failed — the record still ships, just without the
+  // reference answer.
+  intent?: string[];
+  model_answers?: QuestionEvaluationResult["model_answers"];
 }
 
-// Skipped questions get a fully deterministic shape: zero scores, fixed answer
-// text, fixed feedback. No LLM call is involved, so the result never drifts.
+// Skipped questions get deterministic scores and feedback: there is no answer
+// to judge, so nothing here is left to the LLM. Only the reference answer is
+// generated, and its absence never blocks the record.
 export function buildSkippedAnswer(input: BuildSkippedInput): AnswerFinal {
+  const intent = input.intent && input.intent.length > 0 ? input.intent : ["건너뜀"];
+  const modelAnswers =
+    input.model_answers && input.model_answers.length > 0
+      ? input.model_answers
+      : [
+          {
+            question: input.question,
+            model_answer:
+              "이 질문은 건너뛰어 모범 답안이 생성되지 않았습니다. 다음 면접에서는 짧게라도 답변해 보세요.",
+          },
+        ];
+
   return {
     question_id: input.question_id,
     question: input.question,
     answer: "건너뛴 질문입니다.",
     scores: { logic: 0, specificity: 0, job_fit: 0 },
     average: 0,
-    intent: ["건너뜀"],
+    intent,
     feedback: "건너뛴 질문입니다. 종합 점수 계산에서 제외되었습니다.",
-    model_answers: [],
+    model_answers: modelAnswers,
     status: "skipped",
   };
 }
