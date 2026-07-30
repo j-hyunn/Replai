@@ -1,7 +1,8 @@
 import type {
-  MasterResume,
+  MasterResumeInput,
   ResumeExperience,
   ResumeProject,
+  SubmittedResumeContent,
 } from '@/lib/types/master-resume';
 
 function formatPeriod(start: string, end: string, isCurrent = false): string {
@@ -40,10 +41,16 @@ function serializeProject(proj: ResumeProject): string {
 }
 
 /**
- * Serializes a structured master resume into markdown text for LLM prompts.
+ * Serializes a structured resume into markdown text for LLM prompts.
  * Empty fields and empty sections are omitted entirely.
+ *
+ * Typed against the content fields only (not the DB row) so it accepts both a
+ * MasterResume and a SubmittedResumeContent, which share this shape.
  */
-export function serializeMasterResume(resume: MasterResume): string {
+export function serializeMasterResume(
+  resume: MasterResumeInput,
+  options: { omitBasicsSummary?: boolean } = {},
+): string {
   const sections: string[] = [];
 
   // Basics
@@ -52,7 +59,7 @@ export function serializeMasterResume(resume: MasterResume): string {
   pushField(basicsLines, '이메일', resume.basics.email);
   pushField(basicsLines, '연락처', resume.basics.phone);
   pushField(basicsLines, '웹사이트', resume.basics.website);
-  pushField(basicsLines, '소개', resume.basics.summary);
+  if (!options.omitBasicsSummary) pushField(basicsLines, '소개', resume.basics.summary);
   if (basicsLines.length > 0) sections.push(`## 기본 정보\n${basicsLines.join('\n')}`);
 
   // Experiences
@@ -102,4 +109,31 @@ export function serializeMasterResume(resume: MasterResume): string {
   }
 
   return sections.join('\n\n');
+}
+
+/**
+ * Serializes a JD-tailored submitted resume for LLM prompts.
+ *
+ * Identical to the master resume apart from `summary`, the JD-optimized pitch
+ * that only exists on submitted resumes. It leads because it is the applicant's
+ * framing for this specific role — the interviewer should read it first.
+ */
+export function serializeSubmittedResume(content: SubmittedResumeContent): string {
+  // The generator writes content_json straight from LLM output, and the model
+  // puts this pitch at the top level or inside `basics.summary` depending on
+  // the run. Same precedence the viewer uses, so both read the same field.
+  const topLevel = content.summary?.trim() ?? '';
+  const fromBasics = content.basics?.summary?.trim() ?? '';
+  const summary = topLevel || fromBasics;
+
+  // When the summary was hoisted out of basics, drop it there so the prompt
+  // does not carry the same paragraph twice.
+  const body = serializeMasterResume(content, {
+    omitBasicsSummary: !topLevel && Boolean(fromBasics),
+  });
+
+  if (!summary) return body;
+
+  const summarySection = `## JD 맞춤 요약\n${summary}`;
+  return body ? `${summarySection}\n\n${body}` : summarySection;
 }

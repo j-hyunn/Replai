@@ -25,7 +25,7 @@ import { buildAnalysisPrompt, type AnalysisOutput, type UserProfileContext } fro
 import { getUserProfile } from "@/lib/supabase/queries/profiles";
 import { getPersonaSettings } from "@/lib/supabase/queries/personaSettings";
 import { getMasterResume, getSubmittedResume } from "@/lib/supabase/queries/master-resume";
-import { serializeMasterResume } from "@/lib/utils/serializeMasterResume";
+import { serializeMasterResume, serializeSubmittedResume } from "@/lib/utils/serializeMasterResume";
 import { buildFirstQuestionPrompt, buildRespondPrompt, buildSkipPrompt, buildHintPrompt } from "@/lib/prompts/interview";
 import {
   buildQuestionEvaluationPrompt,
@@ -233,10 +233,18 @@ export async function POST(req: Request) {
   const baseSections = hasMasterResumeContent
     ? [`[마스터 이력서]\n${serializeMasterResume(masterResume)}`, ...documentSections]
     : documentSections;
+  // content_json is the canonical form; content_md is only populated on rows
+  // written before the structured format landed. Reading just content_md meant
+  // every newly generated submitted resume was silently dropped from context.
+  const submittedResumeText = submittedResume
+    ? submittedResume.content_json
+      ? serializeSubmittedResume(submittedResume.content_json)
+      : submittedResume.content_md
+    : "";
   const resumeTexts =
-    submittedResume && submittedResume.content_md
+    submittedResume && submittedResumeText.trim()
       ? [
-          `[제출용 이력서 - ${submittedResume.company_name} ${submittedResume.position}]\n${submittedResume.content_md}`,
+          `[제출용 이력서 - ${submittedResume.company_name} ${submittedResume.position}]\n${submittedResumeText}`,
           ...baseSections,
         ]
       : baseSections;
