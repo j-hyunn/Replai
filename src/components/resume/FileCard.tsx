@@ -56,7 +56,7 @@ export default function FileCard({ document, label }: FileCardProps) {
         <FileTextIcon className="size-5 shrink-0 text-muted-foreground" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-medium truncate">{fileName}</p>
+            <p className="text-base font-medium truncate">{fileName}</p>
             {status === "pending" && (
               <Badge variant="secondary" className="shrink-0 gap-1 text-[10px]">
                 <Loader2Icon className="size-2.5 animate-spin" />
@@ -70,7 +70,7 @@ export default function FileCard({ document, label }: FileCardProps) {
               </Badge>
             )}
           </div>
-          <p className="text-xs text-muted-foreground">{uploadedAt}</p>
+          <p className="text-sm text-muted-foreground">{uploadedAt}</p>
         </div>
         {status === "failed" && (
           <Button

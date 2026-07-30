@@ -144,7 +144,7 @@ export default function DocumentCard({
       </CardHeader>
       {document && (
         <CardContent>
-          <p className="text-sm text-muted-foreground truncate">
+          <p className="text-base text-muted-foreground truncate">
             업로드 완료 ·{" "}
             {new Date(document.created_at).toLocaleDateString("ko-KR", {
               year: "numeric",

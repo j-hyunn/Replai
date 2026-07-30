@@ -29,8 +29,8 @@ export default function DocumentSection({ title, description, documents }: Docum
   return (
     <section className="space-y-3">
       <div>
-        <h2 className="text-sm font-semibold">{title}</h2>
-        <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+        <h2 className="text-lg font-semibold">{title}</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">{description}</p>
       </div>
       <div className="space-y-2">
         {documents.length > 0 ? (
@@ -38,7 +38,7 @@ export default function DocumentSection({ title, description, documents }: Docum
             <FileCard key={doc.id} document={doc} label={title} />
           ))
         ) : (
-          <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-sm text-muted-foreground">
+          <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-base text-muted-foreground">
             업로드된 파일이 없습니다
           </div>
         )}

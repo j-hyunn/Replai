@@ -6,7 +6,6 @@ import { PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import DocumentSection from "@/components/resume/DocumentSection";
-import GitLinkSection from "@/components/resume/GitLinkSection";
 import AddDocumentDialog from "@/components/resume/AddDocumentDialog";
 import { saveProfileAction } from "@/app/(main)/profile/actions";
 import type { SaveProfileInput } from "@/app/(main)/profile/actions";
@@ -25,7 +24,6 @@ export default function DocumentStep({ documents, pendingProfile, onBack }: Docu
 
   const resumeDocs = documents.filter((d) => d.type === "resume");
   const portfolioDocs = documents.filter((d) => d.type === "portfolio");
-  const gitDocs = documents.filter((d) => d.type === "git");
 
   function handleFinish() {
     startTransition(async () => {
@@ -62,8 +60,6 @@ export default function DocumentStep({ documents, pendingProfile, onBack }: Docu
         description="PDF · 최대 20MB"
         documents={portfolioDocs}
       />
-
-      <GitLinkSection documents={gitDocs} />
 
       <AddDocumentDialog
         open={dialogOpen}

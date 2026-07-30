@@ -2,6 +2,24 @@ import { createClient } from '@/lib/supabase/server'
 
 export type MessageRole = 'interviewer' | 'user'
 
+/**
+ * Structured classification of a message, stored in its own column rather than
+ * as a marker inside `content`. Hint and skip semantics are data the evaluator
+ * branches on, so they must not depend on parsing display text.
+ */
+export type MessageKind = 'answer' | 'hint_shown' | 'skipped' | 'interviewer'
+
+export const MESSAGE_KINDS: readonly MessageKind[] = [
+  'answer',
+  'hint_shown',
+  'skipped',
+  'interviewer',
+]
+
+export function isMessageKind(value: unknown): value is MessageKind {
+  return typeof value === 'string' && (MESSAGE_KINDS as readonly string[]).includes(value)
+}
+
 export interface InterviewMessage {
   id: string
   session_id: string
@@ -9,6 +27,8 @@ export interface InterviewMessage {
   content: string | null
   depth: number
   question_id: string | null
+  /** Null only for rows written before the `kind` column existed. */
+  kind: MessageKind | null
   created_at: string
 }
 
@@ -16,6 +36,8 @@ export interface CreateMessageInput {
   session_id: string
   role: MessageRole
   content: string
+  /** Required so every writer states its intent explicitly. */
+  kind: MessageKind
   depth?: number
   question_id?: string
 }

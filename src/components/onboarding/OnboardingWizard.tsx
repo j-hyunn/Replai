@@ -41,7 +41,7 @@ export default function OnboardingWizard({ profile, documents }: OnboardingWizar
                   {i + 1}
                 </div>
                 <span
-                  className={`text-sm font-medium ${
+                  className={`text-base font-medium ${
                     i === step ? "text-foreground" : "text-muted-foreground"
                   }`}
                 >
@@ -56,8 +56,8 @@ export default function OnboardingWizard({ profile, documents }: OnboardingWizar
         </div>
 
         <div>
-          <h1 className="text-xl font-semibold">{STEPS[step].label}</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h1 className="text-2xl font-bold">{STEPS[step].label}</h1>
+          <p className="text-base text-muted-foreground mt-1">
             {STEPS[step].description}
           </p>
         </div>

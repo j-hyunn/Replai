@@ -12,18 +12,49 @@ import {
 import { getUser } from "@/lib/supabase/auth.server";
 import { getSession, updateSession } from "@/lib/supabase/queries/sessions";
 import { getDocumentsByIds } from "@/lib/supabase/queries/documents";
-import { getSessionMessages, createMessage } from "@/lib/supabase/queries/messages";
+import {
+  getSessionMessages,
+  createMessage,
+  isMessageKind,
+  type MessageKind,
+} from "@/lib/supabase/queries/messages";
 import { env } from "@/lib/env";
 import { getUserAiConfig } from "@/lib/ai-config";
 import { generateTtsBase64 } from "@/lib/tts";
 import { buildAnalysisPrompt, type AnalysisOutput, type UserProfileContext } from "@/lib/prompts/analysis";
 import { getUserProfile } from "@/lib/supabase/queries/profiles";
 import { getPersonaSettings } from "@/lib/supabase/queries/personaSettings";
+import { getMasterResume, getSubmittedResume } from "@/lib/supabase/queries/master-resume";
+import { serializeMasterResume } from "@/lib/utils/serializeMasterResume";
 import { buildFirstQuestionPrompt, buildRespondPrompt, buildSkipPrompt, buildHintPrompt } from "@/lib/prompts/interview";
-import { buildEvaluationPrompt } from "@/lib/prompts/evaluation";
+import {
+  buildQuestionEvaluationPrompt,
+  buildSummaryEvaluationPrompt,
+  type QaGroup,
+  type QaTurn,
+} from "@/lib/prompts/evaluation";
+import {
+  applyAnsweredOverrides,
+  applyHintCap,
+  buildFailedAnswer,
+  buildSkippedAnswer,
+  computeTotalScore,
+  countByStatus,
+  type AnswerFinal,
+} from "@/lib/evaluation/postprocess";
+import {
+  parseQuestionEvaluation,
+  parseSummaryEvaluation,
+  type SummaryEvaluationParsed,
+} from "@/lib/evaluation/parse";
+import { mapWithConcurrency } from "@/lib/evaluation/concurrency";
 import { sessionService, interviewRunner, APP_NAME } from "@/lib/agents/runners";
 
 const MODEL = "gemini-2.5-flash";
+
+// Max Gemini evaluation calls in flight at once. Keeps a long interview from
+// firing a dozen simultaneous requests and tripping the API rate limit.
+const EVAL_CONCURRENCY = 4;
 
 function makeGemini(apiKey: string, model: string) {
   return new Gemini({ model, apiKey });
@@ -95,7 +126,10 @@ async function ensureAdkSession(params: {
   let invocationIndex = 0;
 
   for (const msg of messages) {
-    if (!msg.content) continue;
+    // Skipped turns have empty content by design; replay a stand-in so the
+    // agent still sees that the question went unanswered.
+    const replayText = msg.kind === "skipped" ? "(질문을 건너뛰었습니다)" : msg.content;
+    if (!replayText) continue;
 
     const isUser = msg.role === "user";
     const event = createEvent({
@@ -103,7 +137,7 @@ async function ensureAdkSession(params: {
       author: isUser ? "user" : "interview_agent",
       content: {
         role: isUser ? "user" : "model",
-        parts: [{ text: msg.content }],
+        parts: [{ text: replayText }],
       },
       actions: createEventActions(),
       timestamp: new Date(msg.created_at).getTime() / 1000,
@@ -119,19 +153,34 @@ export async function POST(req: Request) {
 
   const { apiKey, model } = await getUserAiConfig(user.id);
 
-  const body = await req.json() as { type: string; sessionId: string; userMessage?: string };
+  const body = await req.json() as {
+    type: string;
+    sessionId: string;
+    userMessage?: string;
+    kind?: unknown;
+  };
   const { type, sessionId, userMessage } = body;
+
+  // The client declares whether the answer it is submitting was copied from a
+  // shown model answer. Anything unrecognised falls back to a plain answer;
+  // `interviewer` is server-owned and never accepted from a client.
+  const userKind: MessageKind =
+    isMessageKind(body.kind) && body.kind !== "interviewer" ? body.kind : "answer";
 
   const session = await getSession(sessionId);
   if (!session || session.user_id !== user.id) {
     return new Response("Not Found", { status: 404 });
   }
 
-  // Fetch resume texts, user profile, and persona settings in parallel
-  const [documents, profileData, personaSettings] = await Promise.all([
+  // Fetch resume texts, user profile, persona settings, master resume, and submitted resume in parallel
+  const [documents, profileData, personaSettings, masterResume, submittedResume] = await Promise.all([
     getDocumentsByIds(session.resume_ids ?? []),
     getUserProfile(user.id).catch(() => null),
     getPersonaSettings(user.id).catch(() => []),
+    getMasterResume(user.id).catch(() => null),
+    session.submitted_resume_id
+      ? getSubmittedResume(session.submitted_resume_id).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const currentPersona = (session.persona ?? "explorer") as "explorer" | "pressure" | "technical";
@@ -149,8 +198,21 @@ export async function POST(req: Request) {
       return `[${label}: ${d.file_name ?? d.id}]\n${d.normalized_text ?? d.parsed_text}`;
     });
 
-  // Legacy alias used by prompts — contains all document texts.
-  const resumeTexts = documentSections;
+  // Build resumeTexts with priority: submitted resume > master resume > uploaded documents.
+  // Submitted resume (if any) is placed first so agents treat it as the highest-priority context.
+  const hasMasterResumeContent =
+    masterResume !== null &&
+    (masterResume.experiences.length > 0 || masterResume.projects.length > 0);
+  const baseSections = hasMasterResumeContent
+    ? [`[마스터 이력서]\n${serializeMasterResume(masterResume)}`, ...documentSections]
+    : documentSections;
+  const resumeTexts =
+    submittedResume && submittedResume.content_md
+      ? [
+          `[제출용 이력서 - ${submittedResume.company_name} ${submittedResume.position}]\n${submittedResume.content_md}`,
+          ...baseSections,
+        ]
+      : baseSections;
   const userProfile: UserProfileContext | undefined = profileData
     ? {
         name: profileData.name,
@@ -237,6 +299,7 @@ export async function POST(req: Request) {
         content: firstMessage,
         question_id: firstQuestion?.id,
         depth: 0,
+        kind: "interviewer",
       }),
       generateTtsBase64(firstMessage),
     ]);
@@ -253,11 +316,12 @@ export async function POST(req: Request) {
       return Response.json({ error: "면접 분석 데이터가 없습니다." }, { status: 400 });
     }
 
-    // Save user message first (preserving any marker like [모범 답안] for evaluation).
-    await createMessage({ session_id: sessionId, role: "user", content: userMessage });
+    // Hint usage is recorded in `kind`, so `content` is always the answer text
+    // exactly as the user submitted it — nothing to strip before either the
+    // agent call or evaluation.
+    await createMessage({ session_id: sessionId, role: "user", content: userMessage, kind: userKind });
 
-    // Strip markers before sending to the interview agent so it responds naturally.
-    const agentUserMessage = userMessage.replace(/^\[모범 답안\] /, "");
+    const agentUserMessage = userMessage;
 
     // Ensure ADK session exists (handles cold-start reconstruction).
     const totalSeconds = (session.duration_minutes ?? 30) * 60;
@@ -298,7 +362,7 @@ export async function POST(req: Request) {
     } catch { /* use raw */ }
 
     const [, audioBase64] = await Promise.all([
-      createMessage({ session_id: sessionId, role: "interviewer", content: message, question_id: nextQuestionId }),
+      createMessage({ session_id: sessionId, role: "interviewer", content: message, question_id: nextQuestionId, kind: "interviewer" }),
       generateTtsBase64(message),
     ]);
 
@@ -343,7 +407,8 @@ export async function POST(req: Request) {
       return Response.json({ error: "면접 분석 데이터가 없습니다." }, { status: 400 });
     }
 
-    await createMessage({ session_id: sessionId, role: "user", content: "[질문 건너뛰기]" });
+    // A skipped question carries no answer text — `kind` is the whole record.
+    await createMessage({ session_id: sessionId, role: "user", content: "", kind: "skipped" });
 
     const totalSeconds = (session.duration_minutes ?? 30) * 60;
     await ensureAdkSession({
@@ -380,7 +445,7 @@ export async function POST(req: Request) {
     } catch { /* use raw */ }
 
     const [, audioBase64] = await Promise.all([
-      createMessage({ session_id: sessionId, role: "interviewer", content: message, question_id: nextQuestionId }),
+      createMessage({ session_id: sessionId, role: "interviewer", content: message, question_id: nextQuestionId, kind: "interviewer" }),
       generateTtsBase64(message),
     ]);
 
@@ -393,19 +458,7 @@ export async function POST(req: Request) {
     const messages = await getSessionMessages(sessionId);
     const safeAnalysis = analysisJson ?? { analysis: { jd_keywords: [], strengths: [], preferred_gaps: [] }, questions: [] };
 
-    // Group messages by question_id in the route handler (no LLM call needed).
-    // question_id is propagated forward so follow-up turns inherit the parent question.
-    interface QaTurn { speaker: "interviewer" | "user"; content: string }
-    interface QaGroup {
-      question_id: string;
-      question: string;
-      intent: string;
-      good_answer_tips: string;
-      turns: QaTurn[];
-      used_hint: boolean;
-      skipped: boolean;
-    }
-
+    // Group messages by question_id (no LLM call needed).
     let activeQid: string | null = null;
     const groupMap = new Map<string, QaGroup>();
 
@@ -420,7 +473,7 @@ export async function POST(req: Request) {
           question: meta?.question ?? "",
           intent: meta?.intent ?? "",
           good_answer_tips: meta?.good_answer_tips ?? "",
-          turns: [],
+          turns: [] as QaTurn[],
           used_hint: false,
           skipped: false,
         });
@@ -430,45 +483,119 @@ export async function POST(req: Request) {
       const content = msg.content ?? "";
       group.turns.push({ speaker: msg.role === "interviewer" ? "interviewer" : "user", content });
       if (msg.role === "user") {
-        if (content.startsWith("[모범 답안]")) group.used_hint = true;
-        if (content === "[질문 건너뛰기]") group.skipped = true;
+        if (msg.kind === "hint_shown") group.used_hint = true;
+        if (msg.kind === "skipped") group.skipped = true;
       }
     }
 
     const qaGroups = Array.from(groupMap.values());
+    const jdKeywords = safeAnalysis.analysis.jd_keywords;
+    const evaluatorUserId = user.id;
 
-    const prompt = buildEvaluationPrompt({
-      qaGroups,
-      analysisJson: safeAnalysis,
-      resumeTexts,
-    });
+    // Stage 1: Evaluate each question group individually.
+    //
+    // Skipped questions never reach the LLM — their record is fully
+    // deterministic. Everything else retries up to 3 times and, on final
+    // failure, degrades to a `failed` record instead of throwing, so one bad
+    // answer cannot wipe out the entire report.
+    async function evaluateOneGroup(g: QaGroup): Promise<AnswerFinal> {
+      if (g.skipped) {
+        return buildSkippedAnswer({ question_id: g.question_id, question: g.question });
+      }
 
-    const raw = await runOneShot(prompt, "평가를 시작하세요.", user.id, apiKey, model);
+      const prompt = buildQuestionEvaluationPrompt({ qaGroup: g, resumeTexts, jdKeywords });
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const raw = await runOneShot(prompt, "평가를 시작하세요.", evaluatorUserId, apiKey, model);
+          const parsed = parseQuestionEvaluation(JSON.parse(extractJson(raw)), g.question_id);
+          return g.used_hint ? applyHintCap(parsed) : applyAnsweredOverrides(parsed);
+        } catch (err) {
+          console.error(`[evaluate] group ${g.question_id} attempt ${attempt + 1} failed:`, err);
+        }
+      }
 
-    let reportJson;
-    try {
-      reportJson = JSON.parse(extractJson(raw));
-    } catch {
-      return Response.json({ error: "평가 결과 파싱 실패. 다시 시도해주세요." }, { status: 500 });
+      console.error(`[evaluate] group ${g.question_id} exhausted all attempts — degrading to failed card`);
+      return buildFailedAnswer({ question_id: g.question_id, question: g.question });
     }
 
-    // Merge turns from qaGroups into each answer for display purposes (no extra AI calls).
+    const questionResults = await mapWithConcurrency(qaGroups, EVAL_CONCURRENCY, evaluateOneGroup);
+
+    // If literally nothing could be evaluated there is no report worth
+    // showing — fail loudly rather than render an empty one.
+    const counts = countByStatus(questionResults);
+    if (counts.total > 0 && counts.responded === 0 && counts.failed > 0) {
+      return Response.json(
+        { error: "답변 평가에 모두 실패했습니다. 잠시 후 리포트 생성을 다시 시도해주세요." },
+        { status: 500 },
+      );
+    }
+
+    const totalScore = computeTotalScore(questionResults);
+
+    // Stage 2: Generate overall summary (with retry logic).
+    let summaryResult: SummaryEvaluationParsed | undefined;
+    let lastSummaryError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const summaryPrompt = buildSummaryEvaluationPrompt({
+          questionResults,
+          analysisJson: safeAnalysis,
+          resumeTexts,
+          totalScore,
+          hintCount: counts.hinted,
+          skippedCount: counts.skipped,
+          failedCount: counts.failed,
+        });
+        const raw = await runOneShot(summaryPrompt, "종합 평가를 시작하세요.", evaluatorUserId, apiKey, model);
+        summaryResult = parseSummaryEvaluation(JSON.parse(extractJson(raw)));
+        break;
+      } catch (err) {
+        lastSummaryError = err;
+        console.error(`[evaluate] summary attempt ${attempt + 1} failed:`, err);
+      }
+    }
+    if (!summaryResult) {
+      console.error("[evaluate] summary final error:", lastSummaryError);
+      return Response.json({ error: "종합 평가 실패. 다시 시도해주세요." }, { status: 500 });
+    }
+
+    // Combine stage 1 + stage 2 into EvaluationOutput shape.
     const qaGroupMap = new Map(qaGroups.map((g) => [g.question_id, g]));
-    if (Array.isArray(reportJson.answers)) {
-      reportJson.answers = reportJson.answers.map((a: { question_id: string }) => ({
-        ...a,
-        turns: qaGroupMap.get(a.question_id)?.turns ?? [],
-      }));
-    }
+    const answers = questionResults.map((r) => ({
+      ...r,
+      turns: qaGroupMap.get(r.question_id)?.turns ?? [],
+    }));
+
+    const reportJson = {
+      // Server-computed, not LLM-reported: skipped and failed questions are
+      // excluded from the mean.
+      total_score: totalScore,
+      summary: summaryResult.summary,
+      strengths: summaryResult.strengths,
+      strength_keywords: summaryResult.strength_keywords,
+      improvements: summaryResult.improvements,
+      improvement_keywords: summaryResult.improvement_keywords,
+      answers,
+    };
 
     const { createClient } = await import("@/lib/supabase/server");
     const supabase = await createClient();
-    await supabase.from("interview_reports").upsert({
-      session_id: sessionId,
-      total_score: reportJson.total_score,
-      summary: reportJson.summary,
-      report_json: reportJson,
-    });
+    const { error: reportError } = await supabase.from("interview_reports").upsert(
+      {
+        session_id: sessionId,
+        total_score: reportJson.total_score,
+        summary: reportJson.summary,
+        report_json: reportJson,
+      },
+      { onConflict: "session_id" },
+    );
+    if (reportError) {
+      console.error("[evaluate] failed to persist report:", reportError);
+      return Response.json(
+        { error: "리포트 저장에 실패했습니다. 리포트 생성을 다시 시도해주세요." },
+        { status: 500 },
+      );
+    }
 
     return Response.json({ reportJson });
   }

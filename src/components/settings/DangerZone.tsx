@@ -33,11 +33,11 @@ export default function DangerZone() {
 
   return (
     <section className="space-y-4">
-      <h2 className="text-sm font-semibold text-destructive">위험 구역</h2>
+      <h2 className="text-xl font-semibold text-destructive">위험 구역</h2>
       <div className="rounded-lg border border-destructive/30 p-4 flex items-center justify-between gap-4">
         <div>
-          <p className="text-sm font-medium">계정 삭제</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <p className="text-base font-medium">계정 삭제</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
             계정과 모든 데이터가 영구적으로 삭제됩니다. 되돌릴 수 없습니다.
           </p>
         </div>

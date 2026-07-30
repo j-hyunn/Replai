@@ -11,8 +11,8 @@ export default function ResumePageHeader() {
   return (
     <div className="flex items-start justify-between">
       <div>
-        <h1 className="text-xl font-semibold">문서 관리</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h1 className="text-2xl font-bold">문서 관리</h1>
+        <p className="text-base text-muted-foreground mt-1">
           업로드된 문서는 모의 인터뷰에서 활용할 수 있습니다.
         </p>
       </div>

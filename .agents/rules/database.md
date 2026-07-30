@@ -57,7 +57,9 @@ create table interview_messages (
   id         uuid primary key default gen_random_uuid(),
   session_id uuid references interview_sessions(id) on delete cascade,
   role       text check (role in ('interviewer', 'user')),
-  content    text,        -- 메시지 마커 포함 저장 ([모범 답안], [질문 건너뛰기])
+  content    text,        -- 답변 원문만 저장. 마커 금지 (kind 컬럼으로 대체됨)
+  kind       text check (kind in ('answer', 'hint_shown', 'skipped', 'interviewer'))
+             default 'answer',  -- 힌트·건너뛰기 판정 기준. skipped는 content가 빈 문자열
   depth      integer default 0,
   question_id text,       -- 질문 그룹핑 기준 (꼬리질문은 부모 question_id 상속)
   created_at timestamptz default now()
@@ -157,7 +159,18 @@ create policy "own api settings only" on user_api_settings
 20260401000001_add_user_api_settings.sql      -- user_api_settings 테이블 (BYOK)
 20260403000001_add_normalized_text.sql        -- user_documents.normalized_text 컬럼 추가
 20260403000002_add_technical_persona.sql      -- persona CHECK 제약에 'technical' 추가
+20260517000001_add_normalize_status.sql       -- user_documents 정규화 상태 추적
+20260519080147_add_message_kind.sql           -- interview_messages.kind 추가 + 레거시 마커 백필·제거
+20260520114921_add_interview_reports_session_unique.sql -- interview_reports.session_id UNIQUE 인덱스
+20260611000001_add_resume_tables.sql          -- master_resumes, submitted_resumes 테이블
+20260615000001_add_submitted_resume_id_to_sessions.sql  -- interview_sessions.submitted_resume_id
+20260616000001_add_content_json_to_submitted_resumes.sql -- submitted_resumes.content_json
 ```
+
+**메시지 마커는 폐기됨.** `[모범 답안]` / `[질문 건너뛰기]`를 `content`에 넣던 방식은
+`20260519080147`에서 `kind` 컬럼으로 대체되었고, 같은 마이그레이션이 기존 행의 마커를
+제거했다. `content` 파싱으로 힌트·건너뛰기를 판정하는 코드를 새로 쓰지 말 것 —
+반드시 `kind`를 사용한다.
 
 **주의:** initial_schema의 interview_sessions.persona CHECK 제약은 `('startup', 'enterprise', 'pressure')`로 되어 있으나, 실제 사용 값은 `'explorer' | 'pressure' | 'technical'`임. 신규 마이그레이션 작성 시 `'explorer' | 'pressure' | 'technical'`를 기준으로 한다.
 

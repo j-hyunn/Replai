@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { CheckIcon, Loader2Icon, UploadIcon, XIcon, PlusIcon } from "lucide-react";
+import { CheckIcon, Loader2Icon, UploadIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -11,8 +11,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { getUploadUrlAction, processUploadedDocumentAction, saveGitLinkAction, deleteDocumentAction, revalidateDocumentsAction } from "@/app/(main)/resume/actions";
+import { getUploadUrlAction, processUploadedDocumentAction, deleteDocumentAction, revalidateDocumentsAction } from "@/app/(main)/resume/actions";
 import { createClient } from "@/lib/supabase/client";
 
 interface AddDocumentDialogProps {
@@ -23,15 +22,13 @@ interface AddDocumentDialogProps {
 
 type UploadStep =
   | { kind: "resume"; file: File; label: string }
-  | { kind: "portfolio"; file: File; label: string }
-  | { kind: "git"; url: string; label: string };
+  | { kind: "portfolio"; file: File; label: string };
 
 type StepPhase = "queued" | "uploading" | "processing" | "done" | "error";
 
 const KIND_LABEL: Record<UploadStep["kind"], string> = {
   resume: "이력서",
   portfolio: "포트폴리오",
-  git: "GitHub",
 };
 
 const PHASE_LABEL: Record<StepPhase, string> = {
@@ -60,8 +57,6 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
   const [portfolioFiles, setPortfolioFiles] = useState<File[]>([]);
   const portfolioInputRef = useRef<HTMLInputElement>(null);
 
-  const [gitUrls, setGitUrls] = useState<string[]>([""]);
-
   function handleResumeChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     setResumeFiles((prev) => [...prev, ...files]);
@@ -84,7 +79,6 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
     setIsLoading(false);
     setResumeFiles([]);
     setPortfolioFiles([]);
-    setGitUrls([""]);
     setUploadSteps([]);
     setCurrentStepIndex(-1);
     setStepPhases({});
@@ -95,9 +89,6 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
     const steps: UploadStep[] = [
       ...resumeFiles.map((f) => ({ kind: "resume" as const, file: f, label: f.name })),
       ...portfolioFiles.map((f) => ({ kind: "portfolio" as const, file: f, label: f.name })),
-      ...gitUrls
-        .filter((u) => u.trim())
-        .map((u) => ({ kind: "git" as const, url: u.trim(), label: u.trim() })),
     ];
 
     isCancelledRef.current = false;
@@ -115,41 +106,36 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
       const step = steps[i];
 
       let result;
-      if (step.kind === "resume" || step.kind === "portfolio") {
-        // 1단계: Presigned URL 발급
-        setPhase(i, "uploading");
-        const urlResult = await getUploadUrlAction(
-          step.kind,
-          step.file.name,
-          step.file.size,
-          step.file.type
-        );
-        if (urlResult.error) {
-          result = { error: urlResult.error };
-        } else {
-          // 2단계: Supabase에 직접 업로드 (Vercel 미경유)
-          const supabase = createClient();
-          const { error: uploadError } = await supabase.storage
-            .from("documents")
-            .uploadToSignedUrl(urlResult.storagePath!, urlResult.token!, step.file);
-
-          if (uploadError) {
-            result = { error: `파일 업로드에 실패했습니다: ${uploadError.message}. 다시 시도해주세요.` };
-          } else {
-            // 3단계: 파싱 + DB 저장 (normalize는 백그라운드)
-            setPhase(i, "processing");
-            result = await processUploadedDocumentAction(
-              urlResult.documentId!,
-              urlResult.storagePath!,
-              step.kind,
-              step.file.name,
-              { skipRevalidate: true }
-            );
-          }
-        }
+      // 1단계: Presigned URL 발급
+      setPhase(i, "uploading");
+      const urlResult = await getUploadUrlAction(
+        step.kind,
+        step.file.name,
+        step.file.size,
+        step.file.type
+      );
+      if (urlResult.error) {
+        result = { error: urlResult.error };
       } else {
-        setPhase(i, "processing");
-        result = await saveGitLinkAction(step.url, { skipRevalidate: true });
+        // 2단계: Supabase에 직접 업로드 (Vercel 미경유)
+        const supabase = createClient();
+        const { error: uploadError } = await supabase.storage
+          .from("documents")
+          .uploadToSignedUrl(urlResult.storagePath!, urlResult.token!, step.file);
+
+        if (uploadError) {
+          result = { error: `파일 업로드에 실패했습니다: ${uploadError.message}. 다시 시도해주세요.` };
+        } else {
+          // 3단계: 파싱 + DB 저장 (normalize는 백그라운드)
+          setPhase(i, "processing");
+          result = await processUploadedDocumentAction(
+            urlResult.documentId!,
+            urlResult.storagePath!,
+            step.kind,
+            step.file.name,
+            { skipRevalidate: true }
+          );
+        }
       }
 
       // 업로드 완료 후 취소가 들어온 경우 — 방금 생성된 문서 삭제
@@ -192,10 +178,7 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
     if (hasSuccessfulUploads) onSuccess?.();
   }
 
-  const hasContent =
-    resumeFiles.length > 0 ||
-    portfolioFiles.length > 0 ||
-    gitUrls.some((u) => u.trim());
+  const hasContent = resumeFiles.length > 0 || portfolioFiles.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) handleClose(); }}>
@@ -272,7 +255,7 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
               })}
             </div>
 
-            <p className="text-xs text-muted-foreground text-center leading-relaxed">
+            <p className="text-sm text-muted-foreground text-center leading-relaxed">
               AI 정밀 분석은 백그라운드에서 진행됩니다.
               <br />
               인터뷰 시작 시점에 완료 상태로 진입합니다.
@@ -284,8 +267,8 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
           {/* Resume */}
           <section className="space-y-2">
             <div>
-              <p className="text-sm font-medium">이력서 / 경력기술서</p>
-              <p className="text-xs text-muted-foreground">PDF · 최대 10MB · 여러 파일 선택 가능</p>
+              <p className="text-base font-medium">이력서 / 경력기술서</p>
+              <p className="text-sm text-muted-foreground">PDF · 최대 10MB · 여러 파일 선택 가능</p>
             </div>
             <input
               ref={resumeInputRef}
@@ -307,7 +290,7 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
             {resumeFiles.length > 0 && (
               <ul className="space-y-1.5">
                 {resumeFiles.map((f, i) => (
-                  <li key={i} className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm">
+                  <li key={i} className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-base">
                     <span className="flex-1 truncate">{f.name}</span>
                     <button
                       type="button"
@@ -325,8 +308,8 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
           {/* Portfolio */}
           <section className="space-y-2">
             <div>
-              <p className="text-sm font-medium">포트폴리오</p>
-              <p className="text-xs text-muted-foreground">PDF · 최대 20MB · 여러 파일 선택 가능</p>
+              <p className="text-base font-medium">포트폴리오</p>
+              <p className="text-sm text-muted-foreground">PDF · 최대 20MB · 여러 파일 선택 가능</p>
             </div>
             <input
               ref={portfolioInputRef}
@@ -348,7 +331,7 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
             {portfolioFiles.length > 0 && (
               <ul className="space-y-1.5">
                 {portfolioFiles.map((f, i) => (
-                  <li key={i} className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm">
+                  <li key={i} className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-base">
                     <span className="flex-1 truncate">{f.name}</span>
                     <button
                       type="button"
@@ -363,47 +346,6 @@ export default function AddDocumentDialog({ open, onOpenChange, onSuccess }: Add
             )}
           </section>
 
-          {/* GitHub */}
-          <section className="space-y-2">
-            <div>
-              <p className="text-sm font-medium">GitHub</p>
-              <p className="text-xs text-muted-foreground">GitHub 레포지토리 링크</p>
-            </div>
-            <div className="space-y-2">
-              {gitUrls.map((url, i) => (
-                <div key={i} className="flex gap-2">
-                  <Input
-                    type="url"
-                    placeholder="https://github.com/username/repo"
-                    value={url}
-                    disabled={isLoading}
-                    onChange={(e) =>
-                      setGitUrls((prev) => prev.map((u, j) => (j === i ? e.target.value : u)))
-                    }
-                  />
-                  {gitUrls.length > 1 && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      disabled={isLoading}
-                      onClick={() => setGitUrls((prev) => prev.filter((_, j) => j !== i))}
-                    >
-                      <XIcon className="size-4" />
-                    </Button>
-                  )}
-                </div>
-              ))}
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={isLoading}
-                onClick={() => setGitUrls((prev) => [...prev, ""])}
-              >
-                <PlusIcon className="size-3.5" />
-                링크 추가
-              </Button>
-            </div>
-          </section>
         </div>
 
         <DialogFooter>
