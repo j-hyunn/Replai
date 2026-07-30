@@ -3,7 +3,12 @@ export const maxDuration = 60;
 import { getUser } from "@/lib/supabase/auth.server";
 import { getUserDocuments } from "@/lib/supabase/queries/documents";
 import { getUserSessions } from "@/lib/supabase/queries/sessions";
-import { getSubmittedResume, getSubmittedResumes } from "@/lib/supabase/queries/master-resume";
+import {
+  getMasterResume,
+  getSubmittedResume,
+  getSubmittedResumes,
+} from "@/lib/supabase/queries/master-resume";
+import { hasMasterResumeContent } from "@/lib/utils/masterResumeContent";
 import StartInterviewButton from "@/components/common/StartInterviewButton";
 import SessionTable from "@/components/interview/SessionTable";
 import NoResumeDialog from "@/components/interview/NoResumeDialog";
@@ -15,13 +20,21 @@ export default async function InterviewPage(props: { searchParams: SearchParams 
   const user = await getUser();
   const userId = user!.id;
 
-  const [documents, sessions, allSubmittedResumes] = await Promise.all([
+  const [documents, sessions, allSubmittedResumes, masterResume] = await Promise.all([
     getUserDocuments(userId),
     getUserSessions(userId),
     getSubmittedResumes(userId).catch(() => []),
+    getMasterResume(userId).catch(() => null),
   ]);
 
-  const hasResume = documents.some((d) => d.type === "resume");
+  // An uploaded file is no longer the only valid resume source: a filled-in
+  // master resume or a JD-derived submitted resume is enough to run an
+  // interview, since the interview route injects all three as context.
+  const hasMasterResume = hasMasterResumeContent(masterResume);
+  const hasResume =
+    documents.some((d) => d.type === "resume") ||
+    hasMasterResume ||
+    allSubmittedResumes.length > 0;
 
   // Submitted resumes summary for dialog dropdown
   const submittedResumes = allSubmittedResumes.map((r) => ({
@@ -55,7 +68,7 @@ export default async function InterviewPage(props: { searchParams: SearchParams 
           <p className="text-base text-muted-foreground">
             {hasResume
               ? "JD와 페르소나를 설정하고 면접을 시작하세요."
-              : "이력서를 먼저 업로드해야 면접을 시작할 수 있습니다."}
+              : "이력서를 먼저 등록해야 면접을 시작할 수 있습니다."}
           </p>
         </div>
         <StartInterviewButton
@@ -64,6 +77,7 @@ export default async function InterviewPage(props: { searchParams: SearchParams 
           prefillJd={prefillJd}
           submittedResumeId={pinnedSubmittedResumeId}
           submittedResumes={submittedResumes}
+          hasMasterResume={hasMasterResume}
         />
       </div>
 

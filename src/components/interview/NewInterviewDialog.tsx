@@ -48,11 +48,16 @@ interface NewInterviewDialogProps {
   prefillJd?: PrefillJd | null;
   submittedResumeId?: string | null;
   submittedResumes?: SubmittedResumeSummary[];
+  hasMasterResume?: boolean;
 }
 
 function toOptions(docs: UserDocument[]): ComboboxOption[] {
   return docs.map((d) => ({ value: d.id, label: d.file_name ?? d.id }));
 }
+
+// Radix Select throws on an empty-string item value (an empty value is reserved
+// for "no selection"), so the "직접 입력" option needs a sentinel.
+const DIRECT_INPUT_VALUE = "__direct__";
 
 type StartStage = "idle" | "preparing" | "creating";
 
@@ -63,6 +68,7 @@ export default function NewInterviewDialog({
   prefillJd,
   submittedResumeId: initialSubmittedResumeId,
   submittedResumes = [],
+  hasMasterResume = false,
 }: NewInterviewDialogProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -107,7 +113,13 @@ export default function NewInterviewDialog({
   const resumeOptions = toOptions(resumes);
   const portfolioOptions = toOptions(portfolios);
 
-  const canStart = title.trim() !== "" && resumeIds.length > 0 && persona !== "" && duration !== "";
+  // A resume source is required, but an uploaded document is only one of three:
+  // a selected submitted resume or a filled-in master resume works just as well
+  // (the interview route injects all three as context).
+  const hasOtherResumeSource = selectedSubmittedResumeId !== "" || hasMasterResume;
+  const hasResumeSource = resumeIds.length > 0 || hasOtherResumeSource;
+
+  const canStart = title.trim() !== "" && hasResumeSource && persona !== "" && duration !== "";
 
   function handleReset() {
     setTitle("");
@@ -120,10 +132,13 @@ export default function NewInterviewDialog({
     setSelectedSubmittedResumeId("");
   }
 
-  function handleSubmittedResumeSelect(id: string) {
-    setSelectedSubmittedResumeId(id);
-    if (id === "") return;
-    const found = submittedResumes.find((r) => r.id === id);
+  function handleSubmittedResumeSelect(value: string) {
+    if (value === DIRECT_INPUT_VALUE) {
+      setSelectedSubmittedResumeId("");
+      return;
+    }
+    setSelectedSubmittedResumeId(value);
+    const found = submittedResumes.find((r) => r.id === value);
     if (!found) return;
     setTitle(`${found.company_name} ${found.position}`.trim());
     setJdText(found.jd_text);
@@ -231,7 +246,7 @@ export default function NewInterviewDialog({
                   <SelectValue placeholder="직접 입력" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">직접 입력</SelectItem>
+                  <SelectItem value={DIRECT_INPUT_VALUE}>직접 입력</SelectItem>
                   {submittedResumes.map((r) => (
                     <SelectItem key={r.id} value={r.id}>
                       {r.company_name} {r.position}
@@ -328,11 +343,17 @@ export default function NewInterviewDialog({
           <section className="space-y-2">
             <label className="text-base font-medium">
               이력서 / 경력기술서
-              <span className="ml-1 text-sm text-primary font-normal">*필수</span>
+              {hasOtherResumeSource ? (
+                <span className="ml-1 text-sm text-muted-foreground font-normal">(선택)</span>
+              ) : (
+                <span className="ml-1 text-sm text-primary font-normal">*필수</span>
+              )}
             </label>
             {resumes.length === 0 ? (
               <p className="text-base text-muted-foreground py-2">
-                저장된 이력서가 없습니다. 문서 관리에서 먼저 업로드해 주세요.
+                {hasOtherResumeSource
+                  ? "업로드된 이력서 파일이 없습니다. 마스터·제출용 이력서로 면접을 진행합니다."
+                  : "저장된 이력서가 없습니다. 서류 관리에서 마스터 이력서를 작성하거나 파일을 업로드해 주세요."}
               </p>
             ) : (
               <MultiCombobox
