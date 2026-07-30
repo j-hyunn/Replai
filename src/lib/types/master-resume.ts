@@ -89,7 +89,10 @@ export interface SubmittedResumeContent {
   educations: ResumeEducation[];
   activities: ResumeActivity[];
   self_intro_memo: string;
-  summary: string; // JD-optimized summary (5~8 sentences)
+  // JD-optimized summary (5~8 sentences). Optional because content_json is
+  // parsed straight from LLM output with no schema enforcement — the model
+  // sometimes omits it, or places it in `basics.summary` instead.
+  summary?: string;
 }
 
 export interface SubmittedResume {
