@@ -3,6 +3,8 @@
 import { getUser } from "@/lib/supabase/auth.server";
 import { createSession, deleteSessions, updateSession } from "@/lib/supabase/queries/sessions";
 import type { Persona } from "@/lib/supabase/queries/sessions";
+import { getMasterResume, getSubmittedResume } from "@/lib/supabase/queries/master-resume";
+import { hasMasterResumeContent } from "@/lib/utils/masterResumeContent";
 
 interface CreateInterviewSessionInput {
   title: string;
@@ -64,6 +66,31 @@ export async function createInterviewSessionAction(
   if (!user) return { error: "로그인이 필요합니다." };
 
   try {
+    // A session must have at least one resume source, and a submitted resume
+    // reference must belong to the caller — otherwise the interview would run
+    // with no context (or someone else's).
+    let submittedResumeId: string | null = null;
+    if (input.submittedResumeId) {
+      const submitted = await getSubmittedResume(input.submittedResumeId);
+      if (!submitted || submitted.user_id !== user.id) {
+        return {
+          error:
+            "선택한 제출용 이력서를 찾을 수 없습니다. 서류 관리에서 이력서를 다시 선택해주세요.",
+        };
+      }
+      submittedResumeId = submitted.id;
+    }
+
+    if (input.resumeIds.length === 0 && !submittedResumeId) {
+      const masterResume = await getMasterResume(user.id).catch(() => null);
+      if (!hasMasterResumeContent(masterResume)) {
+        return {
+          error:
+            "면접에 사용할 이력서가 없습니다. 서류 관리에서 마스터 이력서를 작성하거나 이력서 파일을 업로드해주세요.",
+        };
+      }
+    }
+
     const session = await createSession({
       user_id: user.id,
       title: input.title,
@@ -71,7 +98,7 @@ export async function createInterviewSessionAction(
       persona: input.persona,
       duration_minutes: input.durationMinutes,
       resume_ids: input.resumeIds,
-      submitted_resume_id: input.submittedResumeId ?? null,
+      submitted_resume_id: submittedResumeId,
       status: "in_progress",
     });
     return { sessionId: session.id };

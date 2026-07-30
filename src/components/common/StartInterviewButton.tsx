@@ -24,6 +24,7 @@ interface StartInterviewButtonProps {
   prefillJd?: PrefillJd | null;
   submittedResumeId?: string | null;
   submittedResumes?: SubmittedResumeSummary[];
+  hasMasterResume?: boolean;
 }
 
 export default function StartInterviewButton({
@@ -32,8 +33,11 @@ export default function StartInterviewButton({
   prefillJd,
   submittedResumeId,
   submittedResumes,
+  hasMasterResume,
 }: StartInterviewButtonProps) {
-  const [open, setOpen] = useState(false);
+  // Arriving from a submitted resume's "면접 준비" link means the intent is
+  // already to create an interview — open the dialog without a second click.
+  const [open, setOpen] = useState(hasResume && submittedResumeId != null);
 
   return (
     <>
@@ -53,6 +57,7 @@ export default function StartInterviewButton({
           prefillJd={prefillJd}
           submittedResumeId={submittedResumeId}
           submittedResumes={submittedResumes}
+          hasMasterResume={hasMasterResume}
         />
       )}
     </>

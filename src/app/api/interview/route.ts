@@ -26,6 +26,7 @@ import { getUserProfile } from "@/lib/supabase/queries/profiles";
 import { getPersonaSettings } from "@/lib/supabase/queries/personaSettings";
 import { getMasterResume, getSubmittedResume } from "@/lib/supabase/queries/master-resume";
 import { serializeMasterResume, serializeSubmittedResume } from "@/lib/utils/serializeMasterResume";
+import { hasMasterResumeContent } from "@/lib/utils/masterResumeContent";
 import { buildFirstQuestionPrompt, buildRespondPrompt, buildSkipPrompt, buildHintPrompt } from "@/lib/prompts/interview";
 import {
   buildQuestionEvaluationPrompt,
@@ -227,10 +228,7 @@ export async function POST(req: Request) {
 
   // Build resumeTexts with priority: submitted resume > master resume > uploaded documents.
   // Submitted resume (if any) is placed first so agents treat it as the highest-priority context.
-  const hasMasterResumeContent =
-    masterResume !== null &&
-    (masterResume.experiences.length > 0 || masterResume.projects.length > 0);
-  const baseSections = hasMasterResumeContent
+  const baseSections = masterResume && hasMasterResumeContent(masterResume)
     ? [`[마스터 이력서]\n${serializeMasterResume(masterResume)}`, ...documentSections]
     : documentSections;
   // content_json is the canonical form; content_md is only populated on rows
