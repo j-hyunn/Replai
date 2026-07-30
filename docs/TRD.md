@@ -1,3 +1,11 @@
+> ⚠️ **미관리 사본 — 읽지 말 것**
+>
+> 이 파일은 2026-04 시점(v3.0)에서 멈춘 사본이다. 코드베이스와 3~4개 버전 어긋나 있다.
+> 최신 명세는 Obsidian vault `Micro Projects/Replai/` 에 있다 — PRD, TRD, Multi Agent Architecture, Agents Prompt, Decisions.
+> 삭제 여부는 미결정 상태로 남겨둔 것이며, 이 내용을 근거로 코드를 작성하지 말 것.
+
+---
+
 작성일: 2026-04-01 | 상태: Draft | 이전 버전: TRD v2.0 (2026-03-31)
 
 ---
