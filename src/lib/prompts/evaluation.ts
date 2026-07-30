@@ -58,6 +58,16 @@ export interface SummaryEvaluationResult {
   improvement_keywords: string[];
 }
 
+// Shared by the scored-evaluation prompt and the skipped-question prompt so
+// both produce model answers grounded in the same rules.
+const MODEL_ANSWER_RULES = `## 모범 답안 생성 지침 (model_answers)
+- 모범 답안 참조(used_hint) 여부와 무관하게 모든 질문에서 반드시 생성.
+- 지원자 제출 문서를 먼저 스캔: 등장하는 프로젝트명·역할·성과 수치를 파악.
+- 반드시 문서에 등장하는 프로젝트명, 본인 역할, 주요 성과(수치)를 구체적으로 포함. 추상적·일반적 답변 금지.
+- 문서에 없는 상황, 수치, 프로젝트, 경험은 절대 만들거나 추측하지 마세요.
+- 1인칭 한국어로. STAR 기법(상황-과제-행동-결과)을 문서 범위 안에서 활용.
+- 본 질문과 꼬리질문의 model_answer가 같은 프로젝트를 반복하지 않도록, 가능한 경우 서로 다른 경험 활용.`;
+
 // Stage 1: Evaluate a single question group
 export function buildQuestionEvaluationPrompt(params: {
   qaGroup: QaGroup;
@@ -117,13 +127,7 @@ ${dialogue}
 2. feedback: 각 점수 영역(논리성·구체성·직무 적합성)의 채점 근거를 포함하되, 별도 나열 없이 자연스러운 한 문단. 잘한 점과 부족한 점 균형 있게 서술. 마지막 문장에 핵심 개선 방향 제시.
 3. average: scores 세 항목의 산술 평균 (소수점 반올림).
 
-## 모범 답안 생성 지침 (model_answers)
-- 모범 답안 참조(used_hint) 여부와 무관하게 모든 질문에서 반드시 생성.
-- 지원자 제출 문서를 먼저 스캔: 등장하는 프로젝트명·역할·성과 수치를 파악.
-- 반드시 문서에 등장하는 프로젝트명, 본인 역할, 주요 성과(수치)를 구체적으로 포함. 추상적·일반적 답변 금지.
-- 문서에 없는 상황, 수치, 프로젝트, 경험은 절대 만들거나 추측하지 마세요.
-- 1인칭 한국어로. STAR 기법(상황-과제-행동-결과)을 문서 범위 안에서 활용.
-- 본 질문과 꼬리질문의 model_answer가 같은 프로젝트를 반복하지 않도록, 가능한 경우 서로 다른 경험 활용.
+${MODEL_ANSWER_RULES}
 
 ## 출력 형식 (반드시 유효한 JSON만 반환, 마크다운 코드 블록 없이)
 {
@@ -137,6 +141,56 @@ ${dialogue}
   "model_answers": [
     { "question": "본 질문 내용", "model_answer": "본 질문 모범 답안" },
     { "question": "꼬리질문 1 내용", "model_answer": "꼬리질문 1 모범 답안" }
+  ]
+}`;
+}
+
+/**
+ * Skipped questions are never scored — there is no answer to judge. But the
+ * user still gets the most learning value out of seeing what a good answer
+ * would have looked like, so this prompt asks for the model answer alone.
+ */
+export interface SkippedModelAnswerResult {
+  intent: string[];
+  model_answers: Array<{ question: string; model_answer: string }>;
+}
+
+export function buildSkippedModelAnswerPrompt(params: {
+  qaGroup: QaGroup;
+  resumeTexts: string[];
+  jdKeywords: string[];
+}): string {
+  const { qaGroup: g, resumeTexts, jdKeywords } = params;
+
+  const resumeSection =
+    resumeTexts.length > 0 ? resumeTexts.join("\n\n") : "제출된 문서가 없습니다.";
+
+  return `당신은 IT 직무 면접 평가 전문가입니다. 지원자가 아래 질문을 건너뛰었습니다.
+채점은 하지 말고, 이 질문에 대한 모범 답안만 작성하세요.
+
+## 지원자 제출 문서
+${resumeSection}
+
+## JD 핵심 키워드
+${jdKeywords.join(", ") || "없음"}
+
+## 건너뛴 질문
+- question_id: ${g.question_id}
+- 질문: ${g.question}
+- 질문 의도: ${g.intent}
+- 좋은 답변 포인트: ${g.good_answer_tips}
+
+${MODEL_ANSWER_RULES}
+
+## 지시사항
+1. intent: 면접관이 이 질문으로 확인하려 한 핵심을 2~4개의 짧은 명사형 키워드 배열로 추출. 문장 금지.
+2. model_answers: 본 질문에 대한 모범 답안 1개. 점수·피드백은 작성하지 마세요.
+
+## 출력 형식 (반드시 유효한 JSON만 반환, 마크다운 코드 블록 없이)
+{
+  "intent": ["키워드1", "키워드2"],
+  "model_answers": [
+    { "question": ${JSON.stringify(g.question)}, "model_answer": "모범 답안 본문" }
   ]
 }`;
 }

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   InvalidEvaluationError,
   parseQuestionEvaluation,
+  parseSkippedModelAnswer,
   parseSummaryEvaluation,
 } from "./parse";
 
@@ -86,6 +87,44 @@ describe("parseQuestionEvaluation", () => {
       "q1",
     );
     expect(parsed.scores).toEqual({ logic: 80, specificity: 70, job_fit: 90 });
+  });
+});
+
+describe("parseSkippedModelAnswer", () => {
+  it("accepts a well-formed response", () => {
+    const parsed = parseSkippedModelAnswer({
+      intent: ["동기 확인"],
+      model_answers: [{ question: "왜 이직하시나요?", model_answer: "제가 맡았던..." }],
+    });
+    expect(parsed.intent).toEqual(["동기 확인"]);
+    expect(parsed.model_answers).toHaveLength(1);
+  });
+
+  it("throws when no usable model answer came back", () => {
+    expect(() => parseSkippedModelAnswer({ intent: ["x"], model_answers: [] })).toThrow(
+      InvalidEvaluationError,
+    );
+  });
+
+  it("throws when the only model answer has empty text", () => {
+    expect(() =>
+      parseSkippedModelAnswer({
+        intent: ["x"],
+        model_answers: [{ question: "q", model_answer: "" }],
+      }),
+    ).toThrow(InvalidEvaluationError);
+  });
+
+  it("defaults intent to an empty array when malformed", () => {
+    const parsed = parseSkippedModelAnswer({
+      intent: "동기 확인",
+      model_answers: [{ question: "q", model_answer: "a" }],
+    });
+    expect(parsed.intent).toEqual([]);
+  });
+
+  it("throws when the response is not an object", () => {
+    expect(() => parseSkippedModelAnswer(null)).toThrow(InvalidEvaluationError);
   });
 });
 

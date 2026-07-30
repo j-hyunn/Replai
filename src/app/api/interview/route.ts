@@ -29,6 +29,7 @@ import { serializeMasterResume } from "@/lib/utils/serializeMasterResume";
 import { buildFirstQuestionPrompt, buildRespondPrompt, buildSkipPrompt, buildHintPrompt } from "@/lib/prompts/interview";
 import {
   buildQuestionEvaluationPrompt,
+  buildSkippedModelAnswerPrompt,
   buildSummaryEvaluationPrompt,
   type QaGroup,
   type QaTurn,
@@ -44,17 +45,32 @@ import {
 } from "@/lib/evaluation/postprocess";
 import {
   parseQuestionEvaluation,
+  parseSkippedModelAnswer,
   parseSummaryEvaluation,
   type SummaryEvaluationParsed,
 } from "@/lib/evaluation/parse";
 import { mapWithConcurrency } from "@/lib/evaluation/concurrency";
+import { withDeadline } from "@/lib/utils/withDeadline";
 import { sessionService, interviewRunner, APP_NAME } from "@/lib/agents/runners";
+
+// Report generation fans out one Gemini call per question plus a summary call,
+// so it needs far more than the platform default. Matches /api/resume/generate.
+export const maxDuration = 300;
 
 const MODEL = "gemini-2.5-flash";
 
 // Max Gemini evaluation calls in flight at once. Keeps a long interview from
 // firing a dozen simultaneous requests and tripping the API rate limit.
 const EVAL_CONCURRENCY = 4;
+
+// Per-call ceiling. Generous enough that a slow-but-healthy call is not cut
+// off, tight enough that a hung one does not eat the whole function budget.
+const ONESHOT_TIMEOUT_MS = 45_000;
+
+// Wall-clock budget for the whole evaluate handler, kept under maxDuration so
+// there is room left to persist the report. Once it is spent the remaining
+// questions degrade to `failed` cards instead of retrying into a hard timeout.
+const EVAL_BUDGET_MS = 240_000;
 
 function makeGemini(apiKey: string, model: string) {
   return new Gemini({ model, apiKey });
@@ -68,22 +84,33 @@ function extractJson(raw: string): string {
 }
 
 // One-shot agent: no session persistence needed (analysis + evaluation).
-async function runOneShot(instruction: string, userMessage: string, userId: string, apiKey: string, model: string): Promise<string> {
+async function runOneShot(
+  instruction: string,
+  userMessage: string,
+  userId: string,
+  apiKey: string,
+  model: string,
+  timeoutMs: number = ONESHOT_TIMEOUT_MS,
+): Promise<string> {
   const agent = new LlmAgent({ name: "oneshot_agent", model: makeGemini(apiKey, model), instruction: () => instruction });
   const runner = new Runner({ agent, appName: APP_NAME, sessionService: new InMemorySessionService() });
 
-  let result = "";
-  let eventCount = 0;
-  for await (const event of runner.runEphemeral({
-    userId,
-    newMessage: { role: "user", parts: [{ text: userMessage }] },
-  })) {
-    eventCount++;
-    const isFinal = isFinalResponse(event);
-    console.log(`[runOneShot] event#${eventCount} author:${event.author} isFinal:${isFinal} errorCode:${event.errorCode ?? "-"} parts:${event.content?.parts?.length ?? 0}`);
-    if (isFinal) result = stringifyContent(event);
+  async function drain(): Promise<string> {
+    let result = "";
+    let eventCount = 0;
+    for await (const event of runner.runEphemeral({
+      userId,
+      newMessage: { role: "user", parts: [{ text: userMessage }] },
+    })) {
+      eventCount++;
+      const isFinal = isFinalResponse(event);
+      console.log(`[runOneShot] event#${eventCount} author:${event.author} isFinal:${isFinal} errorCode:${event.errorCode ?? "-"} parts:${event.content?.parts?.length ?? 0}`);
+      if (isFinal) result = stringifyContent(event);
+    }
+    return result;
   }
-  return result;
+
+  return withDeadline(drain(), timeoutMs, "runOneShot");
 }
 
 /**
@@ -492,21 +519,51 @@ export async function POST(req: Request) {
     const jdKeywords = safeAnalysis.analysis.jd_keywords;
     const evaluatorUserId = user.id;
 
+    // Hard stop for the whole handler. Each call gets whatever is left of the
+    // budget, capped at ONESHOT_TIMEOUT_MS, so retries can never run past the
+    // function's own limit and lose an otherwise-complete report.
+    const budgetEndsAt = Date.now() + EVAL_BUDGET_MS;
+    const remainingBudgetMs = () => budgetEndsAt - Date.now();
+    const callTimeoutMs = () => Math.min(ONESHOT_TIMEOUT_MS, remainingBudgetMs());
+
     // Stage 1: Evaluate each question group individually.
     //
-    // Skipped questions never reach the LLM — their record is fully
-    // deterministic. Everything else retries up to 3 times and, on final
-    // failure, degrades to a `failed` record instead of throwing, so one bad
-    // answer cannot wipe out the entire report.
+    // Skipped questions are not scored — only a reference answer is generated
+    // for them. Everything else retries up to 3 times and, on final failure,
+    // degrades to a `failed` record instead of throwing, so one bad answer
+    // cannot wipe out the entire report.
     async function evaluateOneGroup(g: QaGroup): Promise<AnswerFinal> {
       if (g.skipped) {
-        return buildSkippedAnswer({ question_id: g.question_id, question: g.question });
+        // Best-effort: a skipped question still ships if this call fails, it
+        // just carries a placeholder instead of a real model answer.
+        try {
+          const prompt = buildSkippedModelAnswerPrompt({ qaGroup: g, resumeTexts, jdKeywords });
+          const raw = await runOneShot(
+            prompt, "모범 답안을 작성해주세요.", evaluatorUserId, apiKey, model, callTimeoutMs(),
+          );
+          const parsed = parseSkippedModelAnswer(JSON.parse(extractJson(raw)));
+          return buildSkippedAnswer({
+            question_id: g.question_id,
+            question: g.question,
+            intent: parsed.intent,
+            model_answers: parsed.model_answers,
+          });
+        } catch (err) {
+          console.error(`[evaluate] skipped-question model answer failed for ${g.question_id}:`, err);
+          return buildSkippedAnswer({ question_id: g.question_id, question: g.question });
+        }
       }
 
       const prompt = buildQuestionEvaluationPrompt({ qaGroup: g, resumeTexts, jdKeywords });
       for (let attempt = 0; attempt < 3; attempt++) {
+        if (remainingBudgetMs() <= 0) {
+          console.error(`[evaluate] budget exhausted before attempt ${attempt + 1} for ${g.question_id}`);
+          break;
+        }
         try {
-          const raw = await runOneShot(prompt, "평가를 시작하세요.", evaluatorUserId, apiKey, model);
+          const raw = await runOneShot(
+            prompt, "평가를 시작하세요.", evaluatorUserId, apiKey, model, callTimeoutMs(),
+          );
           const parsed = parseQuestionEvaluation(JSON.parse(extractJson(raw)), g.question_id);
           return g.used_hint ? applyHintCap(parsed) : applyAnsweredOverrides(parsed);
         } catch (err) {
@@ -536,6 +593,10 @@ export async function POST(req: Request) {
     let summaryResult: SummaryEvaluationParsed | undefined;
     let lastSummaryError: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
+      if (remainingBudgetMs() <= 0) {
+        console.error(`[evaluate] budget exhausted before summary attempt ${attempt + 1}`);
+        break;
+      }
       try {
         const summaryPrompt = buildSummaryEvaluationPrompt({
           questionResults,
@@ -546,7 +607,9 @@ export async function POST(req: Request) {
           skippedCount: counts.skipped,
           failedCount: counts.failed,
         });
-        const raw = await runOneShot(summaryPrompt, "종합 평가를 시작하세요.", evaluatorUserId, apiKey, model);
+        const raw = await runOneShot(
+          summaryPrompt, "종합 평가를 시작하세요.", evaluatorUserId, apiKey, model, callTimeoutMs(),
+        );
         summaryResult = parseSummaryEvaluation(JSON.parse(extractJson(raw)));
         break;
       } catch (err) {
