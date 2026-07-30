@@ -23,6 +23,9 @@ const PERSONA_LABELS: Record<string, string> = {
   pressure: "심층 압박형",
 };
 
+// Shown in place of a skipped turn, which is stored with empty content.
+const SKIP_BUBBLE_TEXT = "질문을 건너뛰겠습니다.";
+
 interface Message {
   role: "interviewer" | "user";
   content: string;
@@ -119,7 +122,14 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
     async function runAnalysis() {
       // Resume: use existing messages if analysis already done
       if (session.analysis_json && existingMessages.length > 0) {
-        setMessages(existingMessages.map((m) => ({ role: m.role, content: m.content ?? "" })));
+        // Skipped turns are stored with empty content, so restore the same
+        // placeholder the live skip path shows instead of a blank bubble.
+        setMessages(
+          existingMessages.map((m) => ({
+            role: m.role,
+            content: m.kind === "skipped" ? SKIP_BUBBLE_TEXT : m.content ?? "",
+          })),
+        );
         setIsPlaying(true);
         return;
       }
@@ -284,9 +294,9 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
     return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
   }
 
-  // displayText: shown in chat bubble
-  // apiText: sent to API (and saved to DB) — defaults to displayText
-  async function sendMessage(displayText: string, apiText?: string) {
+  // displayText is both what the bubble shows and what gets stored — hint
+  // usage travels in `kind` instead of being encoded into the text.
+  async function sendMessage(displayText: string, kind: "answer" | "hint_shown" = "answer") {
     setIsSending(true);
     setMessages((prev) => [
       ...prev,
@@ -297,7 +307,7 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
       const res = await fetch("/api/interview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "respond", sessionId: session.id, userMessage: apiText ?? displayText }),
+        body: JSON.stringify({ type: "respond", sessionId: session.id, userMessage: displayText, kind }),
       });
       if (!res.ok) throw new Error("응답 실패");
       const { message, audioBase64 } = await res.json() as { message: string; audioBase64: string | null };
@@ -332,8 +342,8 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
       });
       if (!res.ok) throw new Error("hint 생성 실패");
       const { hint } = await res.json() as { hint: string };
-      // Display clean hint in chat; store with marker so evaluator can apply penalty
-      await sendMessage(hint, `[모범 답안] ${hint}`);
+      // Tagged hint_shown so the evaluator can apply the score penalty.
+      await sendMessage(hint, "hint_shown");
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -349,7 +359,7 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
     setIsSending(true);
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: "질문을 건너뛰겠습니다." },
+      { role: "user", content: SKIP_BUBBLE_TEXT },
       { role: "interviewer", content: "" },
     ]);
     try {

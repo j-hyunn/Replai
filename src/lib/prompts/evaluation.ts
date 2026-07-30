@@ -1,4 +1,5 @@
 import type { AnalysisOutput } from "./analysis";
+import { HINT_SCORE_CAP } from "@/lib/evaluation/postprocess";
 
 export interface EvaluationOutput {
   total_score: number;
@@ -20,6 +21,9 @@ export interface EvaluationOutput {
     intent: string[];
     feedback: string;
     model_answers: Array<{ question: string; model_answer: string }>;
+    // Optional because reports persisted before the post-processing layer
+    // landed have no status field.
+    status?: "answered" | "hint_shown" | "skipped" | "failed";
   }>;
 }
 
@@ -68,25 +72,15 @@ export function buildQuestionEvaluationPrompt(params: {
   const hasJd = jdKeywords.length > 0;
   const jobFitLabel = hasJd
     ? `job_fit (직무 적합성): JD 핵심 키워드(${jdKeywords.join(", ")})와의 부합도`
-    : "job_fit (직군 일반 역량 부합도): JD가 없으므로 지원자의 직군(${직군 정보 없음})에서 일반적으로 요구되는 역량과의 부합도";
+    : "job_fit (직군 일반 역량 부합도): JD가 없으므로 지원자의 직군에서 일반적으로 요구되는 역량과의 부합도";
 
   const dialogue = g.turns
     .map((t) => `[${t.speaker === "interviewer" ? "면접관" : "지원자"}] ${t.content}`)
     .join("\n");
 
-  if (g.skipped) {
-    return `아래 JSON을 그대로 반환하세요 (유효한 JSON만, 마크다운 코드 블록 없이):
-{
-  "question_id": "${g.question_id}",
-  "question": ${JSON.stringify(g.question)},
-  "answer": "건너뜀",
-  "scores": { "logic": 0, "specificity": 0, "job_fit": 0 },
-  "average": 0,
-  "intent": [],
-  "feedback": "건너뛴 질문입니다.",
-  "model_answers": []
-}`;
-  }
+  // Skipped groups never reach this builder — the route short-circuits them
+  // to buildSkippedAnswer(), which produces the same zero-score record
+  // without spending an LLM call on a question that has no answer.
 
   return `당신은 IT 직무 면접 평가 전문가입니다. 아래 질문 그룹 하나를 평가하고 결과 JSON을 반환하세요.
 
@@ -116,7 +110,7 @@ ${dialogue}
 - 0~29: 건너뜀, 무관한 답변, 또는 응답 없음.
 
 ## 특수 마커 처리 규칙
-- **모범 답안 참조: 예** → 모든 점수를 최대 40점으로 제한. feedback에 "모범 답안을 참조한 답변입니다" 명시.
+- **모범 답안 참조: 예** → 모든 점수를 최대 ${HINT_SCORE_CAP}점으로 제한(서버가 한 번 더 강제). feedback에 "모범 답안을 참조한 답변입니다" 명시.
 
 ## 평가 지시사항
 1. intent: 면접관이 이 질문으로 확인하려 한 핵심을 2~4개의 짧은 키워드 배열로 추출. 문장 금지. 예: ["역할 명확성", "기술 이해도"]
@@ -152,8 +146,22 @@ export function buildSummaryEvaluationPrompt(params: {
   questionResults: QuestionEvaluationResult[];
   analysisJson: AnalysisOutput;
   resumeTexts: string[];
+  // Computed server-side by computeTotalScore() so skipped and failed
+  // questions are excluded. The prompt only echoes it back.
+  totalScore: number;
+  hintCount: number;
+  skippedCount: number;
+  failedCount: number;
 }): string {
-  const { questionResults, analysisJson, resumeTexts } = params;
+  const {
+    questionResults,
+    analysisJson,
+    resumeTexts,
+    totalScore,
+    hintCount,
+    skippedCount,
+    failedCount,
+  } = params;
 
   const resumeSection =
     resumeTexts.length > 0 ? resumeTexts.join("\n\n") : "제출된 문서가 없습니다.";
@@ -166,11 +174,6 @@ export function buildSummaryEvaluationPrompt(params: {
 - feedback 요약: ${r.feedback}`
     )
     .join("\n\n");
-
-  const totalScore =
-    questionResults.length > 0
-      ? Math.round(questionResults.reduce((sum, r) => sum + r.average, 0) / questionResults.length)
-      : 0;
 
   return `당신은 IT 직무 면접 평가 전문가입니다. 아래 질문별 평가 결과를 바탕으로 전체 면접의 종합 평가를 생성하세요.
 
@@ -185,7 +188,9 @@ ${resumeSection}
 ## 질문별 평가 결과 (이미 계산된 값)
 ${answersText}
 
-## 참고: 전체 평균 점수 = ${totalScore}점
+## 면접 진행 요약
+- 전체 질문 ${questionResults.length}개 중 모범 답안 참조 ${hintCount}개, 건너뜀 ${skippedCount}개, 평가 실패 ${failedCount}개
+- 전체 평균 점수 = ${totalScore}점 (건너뜀·평가 실패 질문은 평균에서 제외됨)
 
 ## 종합 평가 지시사항
 1. total_score: ${totalScore} (위 계산값을 그대로 사용)
