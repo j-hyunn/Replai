@@ -11,6 +11,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  describeMediaError,
+  isMediaCaptureAvailable,
+  INSECURE_CONTEXT_MESSAGE,
+} from "@/lib/utils/mediaError";
 
 interface AudioDevice {
   deviceId: string;
@@ -29,6 +34,9 @@ export default function AudioSettings() {
   const [isTesting, setIsTesting] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
   const [permissionState, setPermissionState] = useState<"idle" | "denied" | "granted">("idle");
+  // Why the request failed, not just that it did — "denied" is only one of the
+  // reasons getUserMedia rejects.
+  const [permissionError, setPermissionError] = useState<string | null>(null);
 
   const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -48,35 +56,62 @@ export default function AudioSettings() {
     if (speakers[0]) setSelectedSpeaker(speakers[0].deviceId);
   }, []);
 
+  const applyPermissionState = useCallback(
+    (state: PermissionState) => {
+      if (state === "granted") {
+        setPermissionState("granted");
+        setPermissionError(null);
+        loadDevices();
+      } else if (state === "denied") {
+        setPermissionState("denied");
+      } else {
+        // "prompt" → wait for the user to click the request button
+        setPermissionState("idle");
+        setPermissionError(null);
+      }
+    },
+    [loadDevices],
+  );
+
   useEffect(() => {
-    // Check if permission already granted — if so, load devices silently
+    let status: PermissionStatus | null = null;
+
     navigator.permissions
-      .query({ name: "microphone" as PermissionName })
-      .then((status) => {
-        if (status.state === "granted") {
-          setPermissionState("granted");
-          loadDevices();
-        } else if (status.state === "denied") {
-          setPermissionState("denied");
-        }
-        // "prompt" → wait for user to click the request button
+      ?.query({ name: "microphone" as PermissionName })
+      .then((s) => {
+        status = s;
+        applyPermissionState(s.state);
+        // Without this the panel stays stuck on "denied" after the user grants
+        // the permission in browser settings, with no way back but a reload.
+        s.onchange = () => applyPermissionState(s.state);
       })
       .catch(() => {
-        // Permissions API not supported — leave as idle
+        // Permissions API not supported (Safari) — leave as idle so the request
+        // button stays available.
       });
 
-    return () => { stopTest(); };
+    return () => {
+      if (status) status.onchange = null;
+      stopTest();
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [applyPermissionState]);
 
   async function requestPermission() {
+    if (!isMediaCaptureAvailable()) {
+      setPermissionState("denied");
+      setPermissionError(INSECURE_CONTEXT_MESSAGE);
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((t) => t.stop());
       setPermissionState("granted");
+      setPermissionError(null);
       await loadDevices();
-    } catch {
+    } catch (e) {
       setPermissionState("denied");
+      setPermissionError(describeMediaError(e));
     }
   }
 
@@ -121,8 +156,9 @@ export default function AudioSettings() {
         animFrameRef.current = requestAnimationFrame(tick);
       }
       tick();
-    } catch {
+    } catch (e) {
       setPermissionState("denied");
+      setPermissionError(describeMediaError(e));
     }
   }
 
@@ -159,9 +195,17 @@ export default function AudioSettings() {
       )}
 
       {permissionState === "denied" && (
-        <p className="text-base text-destructive">
-          마이크 권한이 거부됐어요. 브라우저 설정에서 직접 허용해주세요.
-        </p>
+        <div className="flex items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3">
+          <Mic className="h-4 w-4 shrink-0 text-destructive" />
+          <p className="flex-1 text-base text-destructive">
+            {permissionError ?? "마이크 권한이 거부됐어요. 브라우저 설정에서 직접 허용해주세요."}
+          </p>
+          {/* Without a retry the panel is a dead end: every other control is
+              pointer-events-none until permission is granted. */}
+          <Button size="sm" variant="outline" onClick={requestPermission}>
+            다시 시도
+          </Button>
+        </div>
       )}
 
       {/* Device selectors — only shown after permission granted */}
