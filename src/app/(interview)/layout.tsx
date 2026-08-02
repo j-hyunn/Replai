@@ -18,7 +18,7 @@ export default async function InterviewLayout({
 
   return (
     <div className="flex h-screen flex-col" style={{ background: "var(--sidebar)" }}>
-      <header className="flex h-16 shrink-0 items-center gap-3 mx-4 mt-4 rounded-xl border bg-card px-5">
+      <header className="flex h-14 md:h-16 shrink-0 items-center gap-2 md:gap-3 mx-2 mt-2 md:mx-4 md:mt-4 rounded-xl border bg-card px-3 md:px-5">
         <InterviewExitDialog />
         <Separator orientation="vertical" className="h-4" />
         <AppBreadcrumb userName={userName} />
@@ -26,7 +26,7 @@ export default async function InterviewLayout({
           <EndInterviewButton />
         </div>
       </header>
-      <main className="flex flex-1 min-h-0 p-4 pt-3">
+      <main className="flex flex-1 min-h-0 p-2 pt-2 md:p-4 md:pt-3">
         {children}
       </main>
     </div>

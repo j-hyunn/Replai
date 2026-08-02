@@ -3,9 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Pause, Play, SendHorizontal, Hourglass, ClipboardList, RotateCcw, Loader2, Lightbulb, SkipForward, Mic, Volume2, VolumeX } from "lucide-react";
+import { Pause, Play, SendHorizontal, Hourglass, ClipboardList, RotateCcw, Loader2, Lightbulb, SkipForward, Mic, Square, Volume2, VolumeX } from "lucide-react";
 import Image from "next/image";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,9 +13,29 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Bubble, BubbleContent } from "@/components/ui/bubble";
+import {
+  Message,
+  MessageAvatar,
+  MessageContent,
+  MessageFooter,
+} from "@/components/ui/message";
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@/components/ui/message-scroller";
+import {
+  describeMediaError,
+  isMediaCaptureAvailable,
+  INSECURE_CONTEXT_MESSAGE,
+} from "@/lib/utils/mediaError";
 import { saveRemainingSecondsAction, updateSessionStatusAction } from "@/app/(main)/interview/actions";
 import type { InterviewSession } from "@/lib/supabase/queries/sessions";
-import type { InterviewMessage } from "@/lib/supabase/queries/messages";
+import type { InterviewMessage, MessageKind } from "@/lib/supabase/queries/messages";
 
 const PERSONA_LABELS: Record<string, string> = {
   explorer: "경험 탐색형",
@@ -26,9 +45,33 @@ const PERSONA_LABELS: Record<string, string> = {
 // Shown in place of a skipped turn, which is stored with empty content.
 const SKIP_BUBBLE_TEXT = "질문을 건너뛰겠습니다.";
 
-interface Message {
+// Hint-assisted and skipped turns were previously indistinguishable from a real
+// answer; `kind` drives both the bubble tint and the caption under it.
+const BUBBLE_VARIANT_BY_KIND: Record<MessageKind, "default" | "muted" | "tinted" | "outline"> = {
+  interviewer: "muted",
+  answer: "default",
+  hint_shown: "tinted",
+  skipped: "outline",
+};
+
+const BUBBLE_FOOTER_BY_KIND: Record<MessageKind, string | null> = {
+  interviewer: null,
+  answer: null,
+  hint_shown: "모범 답안 참고",
+  skipped: "건너뜀",
+};
+
+// `id` is what MessageScrollerItem tracks turns by, so it must stay stable
+// across the optimistic-placeholder → real-response swap.
+interface ChatMessage {
+  id: string;
   role: "interviewer" | "user";
   content: string;
+  kind: MessageKind;
+}
+
+function newMessageId() {
+  return crypto.randomUUID();
 }
 
 interface InterviewViewProps {
@@ -46,9 +89,8 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
   const [isPlaying, setIsPlaying] = useState(false); // starts false until analysis done
   const [timeUpOpen, setTimeUpOpen] = useState(false);
   const [endConfirmOpen, setEndConfirmOpen] = useState(false);
-  const [directInput, setDirectInput] = useState(false);
   const [inputText, setInputText] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isHinting, setIsHinting] = useState(false);
@@ -63,7 +105,6 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
   const [evalElapsed, setEvalElapsed] = useState(0);
   const [analysisKey, setAnalysisKey] = useState(0);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const analysisRanRef = useRef(false);
@@ -126,8 +167,11 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
         // placeholder the live skip path shows instead of a blank bubble.
         setMessages(
           existingMessages.map((m) => ({
+            id: m.id,
             role: m.role,
             content: m.kind === "skipped" ? SKIP_BUBBLE_TEXT : m.content ?? "",
+            // `kind` is null only for rows predating the column.
+            kind: m.kind ?? (m.role === "interviewer" ? "interviewer" : "answer"),
           })),
         );
         setIsPlaying(true);
@@ -147,7 +191,9 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
           throw new Error(err.error ?? "분석 실패");
         }
         const data = await res.json() as { firstMessage: string; audioBase64?: string | null };
-        setMessages([{ role: "interviewer", content: data.firstMessage }]);
+        setMessages([
+          { id: newMessageId(), role: "interviewer", content: data.firstMessage, kind: "interviewer" },
+        ]);
         if (data.audioBase64) pendingAudioRef.current = data.audioBase64;
         setIsPlaying(true);
       } catch (e) {
@@ -283,10 +329,6 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
     };
   }, [isPlaying, session.id]);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
 
   function formatTime(s: number) {
     const m = Math.floor(s / 60);
@@ -296,12 +338,21 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
 
   // displayText is both what the bubble shows and what gets stored — hint
   // usage travels in `kind` instead of being encoded into the text.
+  // Replaces the pending interviewer placeholder by id rather than by position,
+  // so a message appended while the request is in flight cannot be clobbered.
+  function resolvePlaceholder(placeholderId: string, content: string) {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === placeholderId ? { ...m, content } : m)),
+    );
+  }
+
   async function sendMessage(displayText: string, kind: "answer" | "hint_shown" = "answer") {
     setIsSending(true);
+    const placeholderId = newMessageId();
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: displayText },
-      { role: "interviewer", content: "" },
+      { id: newMessageId(), role: "user", content: displayText, kind },
+      { id: placeholderId, role: "interviewer", content: "", kind: "interviewer" },
     ]);
     try {
       const res = await fetch("/api/interview", {
@@ -311,13 +362,10 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
       });
       if (!res.ok) throw new Error("응답 실패");
       const { message, audioBase64 } = await res.json() as { message: string; audioBase64: string | null };
-      setMessages((prev) => [...prev.slice(0, -1), { role: "interviewer", content: message }]);
+      resolvePlaceholder(placeholderId, message);
       if (audioBase64) playBase64Audio(audioBase64);
     } catch {
-      setMessages((prev) => [
-        ...prev.slice(0, -1),
-        { role: "interviewer", content: "응답 중 오류가 발생했습니다. 다시 시도해주세요." },
-      ]);
+      resolvePlaceholder(placeholderId, "응답 중 오류가 발생했습니다. 다시 시도해주세요.");
     } finally {
       setIsSending(false);
     }
@@ -347,7 +395,12 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
     } catch {
       setMessages((prev) => [
         ...prev,
-        { role: "interviewer", content: "모범 답안을 생성하는 중 오류가 발생했습니다." },
+        {
+          id: newMessageId(),
+          role: "interviewer",
+          content: "모범 답안을 생성하는 중 오류가 발생했습니다.",
+          kind: "interviewer",
+        },
       ]);
     } finally {
       setIsHinting(false);
@@ -357,10 +410,11 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
   async function handleSkip() {
     if (isSending || isHinting || isAnalyzing) return;
     setIsSending(true);
+    const placeholderId = newMessageId();
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: SKIP_BUBBLE_TEXT },
-      { role: "interviewer", content: "" },
+      { id: newMessageId(), role: "user", content: SKIP_BUBBLE_TEXT, kind: "skipped" },
+      { id: placeholderId, role: "interviewer", content: "", kind: "interviewer" },
     ]);
     try {
       const res = await fetch("/api/interview", {
@@ -370,10 +424,10 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
       });
       if (!res.ok) throw new Error("skip 실패");
       const { message, audioBase64 } = await res.json() as { message: string; audioBase64: string | null };
-      setMessages((prev) => [...prev.slice(0, -1), { role: "interviewer", content: message }]);
+      resolvePlaceholder(placeholderId, message);
       if (audioBase64) playBase64Audio(audioBase64);
     } catch {
-      setMessages((prev) => [...prev.slice(0, -1), { role: "interviewer", content: "오류가 발생했습니다. 다시 시도해주세요." }]);
+      resolvePlaceholder(placeholderId, "오류가 발생했습니다. 다시 시도해주세요.");
     } finally {
       setIsSending(false);
     }
@@ -396,11 +450,17 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
 
   async function handleMicStart() {
     stopTts();
+
+    if (!isMediaCaptureAvailable()) {
+      toast.error(INSECURE_CONTEXT_MESSAGE);
+      return;
+    }
+
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      toast.error("마이크 권한이 필요해요. 브라우저 설정에서 허용해주세요.");
+    } catch (e) {
+      toast.error(describeMediaError(e));
       return;
     }
 
@@ -481,7 +541,6 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
     secondsLeftRef.current = totalSeconds;
     setIsPlaying(false);
     setMessages([]);
-    setDirectInput(false);
     setInputText("");
     setTimeUpOpen(false);
     setAnalysisError(null);
@@ -491,6 +550,53 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
 
   const isLowTime = secondsLeft < totalSeconds * 0.2;
   const title = session.persona ? `${PERSONA_LABELS[session.persona]} 모의면접` : "모의면접";
+
+  // The AI panel is hidden on mobile, so the timer and transport controls it
+  // hosts are rendered a second time in the chat header at that size.
+  function renderTimer(compact: boolean) {
+    return (
+      <div
+        className={`inline-flex shrink-0 items-center justify-center gap-1 rounded-full font-semibold tabular-nums leading-none ${
+          compact ? "h-6 w-[4rem] px-2 text-[11px]" : "h-7 w-[4.5rem] px-2.5 text-xs"
+        } ${isLowTime ? "bg-destructive/10 text-destructive" : "bg-primary text-primary-foreground"}`}
+      >
+        <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+          <circle cx="12" cy="12" r="10" />
+          <polyline points="12 6 12 12 16 14" />
+        </svg>
+        <span className={`${compact ? "w-8" : "w-9"} text-center leading-none`}>{formatTime(secondsLeft)}</span>
+      </div>
+    );
+  }
+
+  function renderTransportControls(compact: boolean) {
+    const size = compact ? "h-8 w-8" : "h-12 w-12";
+    const icon = compact ? "h-4 w-4" : "h-5 w-5";
+    return (
+      <>
+        <button
+          onClick={() => setIsPlaying(false)}
+          disabled={!isPlaying || isAnalyzing}
+          className={`flex ${size} items-center justify-center rounded-full transition-colors disabled:opacity-40 ${
+            !isPlaying ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/70 text-foreground"
+          }`}
+          aria-label="일시정지"
+        >
+          <Pause className={icon} />
+        </button>
+        <button
+          onClick={() => setIsPlaying(true)}
+          disabled={isPlaying || isAnalyzing}
+          className={`flex ${size} items-center justify-center rounded-full transition-colors disabled:opacity-40 ${
+            isPlaying ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/70 text-foreground"
+          }`}
+          aria-label="재생"
+        >
+          <Play className={icon} />
+        </button>
+      </>
+    );
+  }
 
   if (isEvaluating) {
     const EVAL_STEPS = ["답변 정리", "기업/직무 특화", "전문가 평가", "리포트 생성"] as const;
@@ -506,7 +612,7 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
           <p className="text-base text-muted-foreground">면접 답변을 바탕으로 피드백 리포트를 만들고 있어요</p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-center gap-2 px-2">
           {EVAL_STEPS.map((step, i) => (
             <div key={step} className="flex items-center gap-2">
               <div className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-all ${
@@ -667,69 +773,59 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
       </DialogContent>
     </Dialog>
 
-    <div className="flex w-full h-full gap-4 overflow-hidden">
-      {/* ── Left: AI panel ─────────────────────────────────── */}
-      <div className="flex flex-[3] flex-col rounded-xl border bg-card overflow-hidden">
+    <div className="flex w-full h-full gap-2 md:gap-4 overflow-hidden">
+      {/* Declared at the container level, not inside the AI panel: that panel is
+          display:none on mobile, and `mic-bar` is used by the composer. */}
+      <style>{`
+        @keyframes blob-float {
+          0%, 100% { transform: scale(1) translate(0px, 0px); }
+          25% { transform: scale(1.1) translate(12px, -12px); }
+          50% { transform: scale(0.92) translate(-8px, 8px); }
+          75% { transform: scale(1.06) translate(-10px, -6px); }
+        }
+        @keyframes blob-glow {
+          0%, 100% { opacity: 0.75; }
+          50% { opacity: 1; }
+        }
+        @keyframes mic-bar {
+          from { height: 3px; }
+          to { height: 100%; }
+        }
+        .blob-outer { animation: blob-float 4.5s ease-in-out infinite; }
+        .blob-glow { animation: blob-glow 2.5s ease-in-out infinite; }
+        .blob-halo {
+          background: radial-gradient(circle, color-mix(in srgb, var(--primary) 15%, transparent) 0%, transparent 70%);
+        }
+        .blob-orb {
+          width: 220px;
+          height: 220px;
+          border-radius: 50%;
+          background: radial-gradient(
+            circle at 42% 36%,
+            color-mix(in srgb, var(--primary) 25%, white) 0%,
+            color-mix(in srgb, var(--primary) 55%, white) 40%,
+            var(--primary) 70%,
+            var(--primary) 100%
+          );
+          box-shadow:
+            0 0 60px 20px color-mix(in srgb, var(--primary) 35%, transparent),
+            0 0 120px 50px color-mix(in srgb, var(--primary) 20%, transparent),
+            0 0 200px 80px color-mix(in srgb, var(--primary) 8%, transparent),
+            inset 0 0 40px 10px rgba(255,255,255,0.25),
+            inset -15px -15px 40px 0px color-mix(in srgb, var(--primary) 15%, transparent);
+        }
+      `}</style>
+
+      {/* ── Left: AI panel — desktop only ──────────────────── */}
+      <div className="hidden md:flex flex-[3] flex-col rounded-xl border bg-card overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 shrink-0">
           <h1 className="text-sm font-semibold truncate">{title}</h1>
-          <div
-            className={`inline-flex h-7 w-[4.5rem] shrink-0 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-semibold tabular-nums leading-none ${
-              isLowTime
-                ? "bg-destructive/10 text-destructive"
-                : "bg-primary text-primary-foreground"
-            }`}
-          >
-            <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
-            <span className="w-9 text-center leading-none">{formatTime(secondsLeft)}</span>
-          </div>
+          {renderTimer(false)}
         </div>
 
         {/* AI blob area */}
         <div className="flex flex-1 items-center justify-center overflow-hidden">
-          <style>{`
-            @keyframes blob-float {
-              0%, 100% { transform: scale(1) translate(0px, 0px); }
-              25% { transform: scale(1.1) translate(12px, -12px); }
-              50% { transform: scale(0.92) translate(-8px, 8px); }
-              75% { transform: scale(1.06) translate(-10px, -6px); }
-            }
-            @keyframes blob-glow {
-              0%, 100% { opacity: 0.75; }
-              50% { opacity: 1; }
-            }
-            @keyframes mic-bar {
-              from { height: 3px; }
-              to { height: 100%; }
-            }
-            .blob-outer { animation: blob-float 4.5s ease-in-out infinite; }
-            .blob-glow { animation: blob-glow 2.5s ease-in-out infinite; }
-            .blob-halo {
-              background: radial-gradient(circle, color-mix(in srgb, var(--primary) 15%, transparent) 0%, transparent 70%);
-            }
-            .blob-orb {
-              width: 220px;
-              height: 220px;
-              border-radius: 50%;
-              background: radial-gradient(
-                circle at 42% 36%,
-                color-mix(in srgb, var(--primary) 25%, white) 0%,
-                color-mix(in srgb, var(--primary) 55%, white) 40%,
-                var(--primary) 70%,
-                var(--primary) 100%
-              );
-              box-shadow:
-                0 0 60px 20px color-mix(in srgb, var(--primary) 35%, transparent),
-                0 0 120px 50px color-mix(in srgb, var(--primary) 20%, transparent),
-                0 0 200px 80px color-mix(in srgb, var(--primary) 8%, transparent),
-                inset 0 0 40px 10px rgba(255,255,255,0.25),
-                inset -15px -15px 40px 0px color-mix(in srgb, var(--primary) 15%, transparent);
-            }
-          `}</style>
-
           <div
             className="blob-outer relative"
             style={{ animationPlayState: isPlaying ? "running" : "paused" }}
@@ -744,39 +840,21 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
 
         {/* Controls */}
         <div className="flex items-center justify-center gap-4 py-5 shrink-0">
-          <button
-            onClick={() => setIsPlaying(false)}
-            disabled={!isPlaying || isAnalyzing}
-            className={`flex h-12 w-12 items-center justify-center rounded-full transition-colors ${
-              !isPlaying
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted hover:bg-muted/70 text-foreground"
-            }`}
-            aria-label="일시정지"
-          >
-            <Pause className="h-5 w-5" />
-          </button>
-          <button
-            onClick={() => setIsPlaying(true)}
-            disabled={isPlaying || isAnalyzing}
-            className={`flex h-12 w-12 items-center justify-center rounded-full transition-colors ${
-              isPlaying
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted hover:bg-muted/70 text-foreground"
-            }`}
-            aria-label="재생"
-          >
-            <Play className="h-5 w-5" />
-          </button>
+          {renderTransportControls(false)}
         </div>
       </div>
 
       {/* ── Right: Chat panel ──────────────────────────────── */}
-      <div className="flex flex-[2] flex-col rounded-xl border bg-card overflow-hidden">
+      <div className="flex flex-1 md:flex-[2] flex-col rounded-xl border bg-card overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between border-b px-4 py-3 shrink-0">
-          <span className="text-sm font-semibold">대화 내용</span>
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-2 border-b px-3 py-2.5 md:px-4 md:py-3 shrink-0">
+          <span className="hidden md:inline text-sm font-semibold">대화 내용</span>
+          <div className="md:hidden">{renderTimer(true)}</div>
+
+          <div className="flex items-center gap-2 md:gap-3">
+            <div className="flex items-center gap-1.5 md:hidden">
+              {renderTransportControls(true)}
+            </div>
             <button
               onClick={toggleTts}
               className={`transition-colors ${ttsEnabled ? (isSpeaking ? "text-primary" : "text-foreground") : "text-muted-foreground"}`}
@@ -784,38 +862,54 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
             >
               {ttsEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             </button>
-            <span className="text-xs text-muted-foreground">직접 입력</span>
-            <Switch checked={directInput} onCheckedChange={setDirectInput} />
           </div>
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          {messages.map((msg, i) => (
-            <div key={i}>
-              {msg.role === "interviewer" && (
-                <div className="flex items-center gap-2 mb-1.5">
-                  <Image src="/logo.svg" alt="Replai" width={24} height={24} />
-                  <span className="text-xs font-medium">리플레이</span>
-                </div>
-              )}
-              <div
-                className={`rounded-xl px-3 py-2 text-sm ${
-                  msg.role === "interviewer"
-                    ? "bg-muted text-foreground"
-                    : "bg-primary/10 text-foreground ml-8"
-                }`}
-              >
-                {msg.content || (
-                  <span className="text-muted-foreground italic">
-                    {THINKING_MESSAGES[thinkingMsgIndex]}
-                  </span>
-                )}
-              </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
+        <MessageScrollerProvider autoScroll>
+          <MessageScroller className="min-h-0 flex-1">
+            <MessageScrollerViewport className="px-4 py-4">
+              {/* justify-end keeps a short conversation anchored to the bottom
+                  instead of stranding it above a screen of empty space. */}
+              <MessageScrollerContent className="justify-end gap-5">
+                {messages.map((msg) => {
+                  const isInterviewer = msg.role === "interviewer";
+                  return (
+                    <MessageScrollerItem key={msg.id} messageId={msg.id}>
+                      <Message align={isInterviewer ? "start" : "end"}>
+                        {isInterviewer && (
+                          // self-center overrides MessageAvatar's default self-end
+                          // so the mark sits level with the middle of the bubble.
+                          <MessageAvatar className="size-7 self-center bg-transparent">
+                            <Image src="/logo.svg" alt="Replai" width={28} height={28} />
+                          </MessageAvatar>
+                        )}
+                        <MessageContent className="justify-center">
+                          <Bubble
+                            align={isInterviewer ? "start" : "end"}
+                            variant={BUBBLE_VARIANT_BY_KIND[msg.kind]}
+                          >
+                            <BubbleContent>
+                              {msg.content || (
+                                <span className="italic text-muted-foreground">
+                                  {THINKING_MESSAGES[thinkingMsgIndex]}
+                                </span>
+                              )}
+                            </BubbleContent>
+                          </Bubble>
+                          {BUBBLE_FOOTER_BY_KIND[msg.kind] && (
+                            <MessageFooter>{BUBBLE_FOOTER_BY_KIND[msg.kind]}</MessageFooter>
+                          )}
+                        </MessageContent>
+                      </Message>
+                    </MessageScrollerItem>
+                  );
+                })}
+              </MessageScrollerContent>
+            </MessageScrollerViewport>
+            <MessageScrollerButton />
+          </MessageScroller>
+        </MessageScrollerProvider>
 
         {/* Input area — always rendered */}
         <div className="border-t p-3 shrink-0 space-y-2">
@@ -839,12 +933,39 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
             </button>
           </div>
 
-          {/* Text input (직접입력 ON) */}
-          {directInput ? (
-            <div className="flex items-end gap-2">
+          {/* Single composer row — typing and speaking share one control strip,
+              so there is no mode toggle to flip before answering. */}
+          <div className="flex items-end gap-2 rounded-xl border bg-background p-1.5 focus-within:ring-1 focus-within:ring-ring">
+            <button
+              onClick={isListening ? handleMicCancel : handleMicStart}
+              disabled={isSending || isAnalyzing || isTranscribing || !isPlaying}
+              className={`flex h-8 w-8 shrink-0 items-center justify-center self-end rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                isListening
+                  ? "bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-950/50 dark:text-red-400"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+              aria-label={isListening ? "녹음 취소" : "음성으로 답변하기"}
+            >
+              {isListening ? <Square className="h-3.5 w-3.5 fill-current" /> : <Mic className="h-4 w-4" />}
+            </button>
+
+            {isListening ? (
+              <div className="flex min-h-8 flex-1 items-center gap-2 px-1">
+                <div className="flex h-4 flex-1 items-center gap-[2px]">
+                  {Array.from({ length: 24 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="flex-1 rounded-[1px] bg-primary"
+                      style={{ animation: `mic-bar 0.7s ease-in-out ${(i % 6) * 0.12}s infinite alternate` }}
+                    />
+                  ))}
+                </div>
+                <span className="shrink-0 text-xs text-muted-foreground">말하고 있어요...</span>
+              </div>
+            ) : (
               <Textarea
                 ref={textareaRef}
-                placeholder="답변을 입력하세요..."
+                placeholder="답변을 입력하거나 마이크를 누르세요..."
                 rows={1}
                 value={inputText}
                 onChange={(e) => {
@@ -858,60 +979,29 @@ export default function InterviewView({ session, existingMessages }: InterviewVi
                     handleSend();
                   }
                 }}
-                className="resize-none text-sm overflow-hidden"
-                style={{ minHeight: "2.25rem" }}
+                className="max-h-32 min-h-8 resize-none border-0 bg-transparent px-1 py-1.5 text-sm shadow-none focus-visible:ring-0"
                 disabled={isSending || isAnalyzing}
               />
-              <button
-                onClick={handleSend}
-                disabled={!inputText.trim() || isSending || isAnalyzing}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-40 transition-opacity"
-              >
-                {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
-              </button>
-            </div>
-          ) : (
-            /* Voice input (직접입력 OFF) */
-            <div className="space-y-2">
-              {isListening && (
-                <>
-                  <div className="flex items-center gap-[2px] h-4">
-                    {Array.from({ length: 24 }).map((_, i) => (
-                      <div
-                        key={i}
-                        className="flex-1 rounded-[1px] bg-primary"
-                        style={{ animation: `mic-bar 0.7s ease-in-out ${(i % 6) * 0.12}s infinite alternate` }}
-                      />
-                    ))}
-                  </div>
-                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm min-h-9">
-                    <span className="text-muted-foreground">말하고 있어요...</span>
-                  </div>
-                </>
+            )}
+
+            <button
+              onClick={isListening ? handleVoiceSend : handleSend}
+              disabled={
+                isSending ||
+                isAnalyzing ||
+                isTranscribing ||
+                (!isListening && !inputText.trim())
+              }
+              className="flex h-8 w-8 shrink-0 items-center justify-center self-end rounded-lg bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
+              aria-label="답변 전송"
+            >
+              {isSending || isTranscribing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <SendHorizontal className="h-4 w-4" />
               )}
-              <div className="flex items-end gap-2">
-                <button
-                  onClick={isListening ? handleMicCancel : handleMicStart}
-                  disabled={isSending || isAnalyzing || !isPlaying}
-                  className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                    isListening
-                      ? "border border-red-300 bg-red-50 text-red-500 hover:bg-red-100 dark:border-red-700 dark:bg-red-950/30 dark:text-red-400"
-                      : "border border-border bg-muted/50 text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  <Mic className="h-4 w-4" />
-                  {isListening ? "취소" : "말하기"}
-                </button>
-                <button
-                  onClick={handleVoiceSend}
-                  disabled={!isListening || isSending || isAnalyzing || isTranscribing}
-                  className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-40 transition-opacity"
-                >
-                  {isTranscribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-          )}
+            </button>
+          </div>
         </div>
       </div>
     </div>
